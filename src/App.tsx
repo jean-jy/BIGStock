@@ -289,8 +289,8 @@ const MOCK_ACTIVITIES: Activity[] = [
 const LoginView = ({ onLoginError }: { onLoginError?: (msg: string) => void }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [email, setEmail] = useState('admin@bigdental.com');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -302,14 +302,7 @@ const LoginView = ({ onLoginError }: { onLoginError?: (msg: string) => void }) =
       const { error } = await supabase.auth.signInWithPassword({ email, password });
 
       if (error) {
-        if (error.message.includes('Invalid login credentials')) {
-          // Auto sign-up for new users (demo convenience)
-          const { error: signUpError } = await supabase.auth.signUp({ email, password });
-          if (signUpError) throw signUpError;
-          // onAuthStateChange in App will pick up the new session
-        } else {
-          throw error;
-        }
+        throw error;
       }
       // Success — onAuthStateChange in App handles setting the user
     } catch (err: any) {
@@ -451,10 +444,10 @@ export default function App() {
   const [activeBranch, setActiveBranch] = useState('Main Branch');
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [mockUsers, setMockUsers] = useState([
-    { id: 1, name: 'Dr. Sarah Chen', role: 'Admin', branch: 'All Branches', email: 'admin@bigdental.com', avatar: 'https://picsum.photos/seed/sarah/100/100', password: 'password123' },
-    { id: 2, name: 'Marcus Wong', role: 'Branch Manager', branch: 'Kepong Branch', email: 'marcus.w@bigdental.com', avatar: 'https://picsum.photos/seed/marcus/100/100', password: 'password123' },
-    { id: 3, name: 'Aisha Rahman', role: 'Staff', branch: 'Jadehills Branch', email: 'aisha.r@bigdental.com', avatar: 'https://picsum.photos/seed/aisha/100/100', password: 'password123' },
-    { id: 4, name: 'Kevin Tan', role: 'Staff', branch: 'Puchong Branch', email: 'kevin.t@bigdental.com', avatar: 'https://picsum.photos/seed/kevin/100/100', password: 'password123' },
+    { id: 1, name: 'Dr. Sarah Chen', role: 'Admin', branch: 'All Branches', email: 'admin@bigdental.com', avatar: 'https://picsum.photos/seed/sarah/100/100' },
+    { id: 2, name: 'Marcus Wong', role: 'Branch Manager', branch: 'Kepong Branch', email: 'marcus.w@bigdental.com', avatar: 'https://picsum.photos/seed/marcus/100/100' },
+    { id: 3, name: 'Aisha Rahman', role: 'Staff', branch: 'Jadehills Branch', email: 'aisha.r@bigdental.com', avatar: 'https://picsum.photos/seed/aisha/100/100' },
+    { id: 4, name: 'Kevin Tan', role: 'Staff', branch: 'Puchong Branch', email: 'kevin.t@bigdental.com', avatar: 'https://picsum.photos/seed/kevin/100/100' },
   ]);
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -3302,17 +3295,17 @@ function SettingsView({ mockUsers, setMockUsers, user }: { mockUsers: any[], set
 
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
-  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'Staff', branch: 'All Branches', password: 'password123' });
+  const [userForm, setUserForm] = useState({ name: '', email: '', role: 'Staff', branch: 'All Branches', password: '' });
 
   const handleAddUser = () => {
     setEditingUserId(null);
-    setUserForm({ name: '', email: '', role: 'Staff', branch: 'All Branches', password: 'password123' });
+    setUserForm({ name: '', email: '', role: 'Staff', branch: 'All Branches', password: '' });
     setUserModalOpen(true);
   };
-  
+
   const handleEditUser = (user: any) => {
     setEditingUserId(user.id);
-    setUserForm({ name: user.name, email: user.email, role: user.role, branch: user.branch, password: user.password || 'password123' });
+    setUserForm({ name: user.name, email: user.email, role: user.role, branch: user.branch, password: '' });
     setUserModalOpen(true);
   };
 
