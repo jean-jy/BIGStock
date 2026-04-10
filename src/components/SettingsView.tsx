@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   User, Shield, Globe, Database, Mail, Phone, Map,
   Users, Lock, UserPlus, Hospital, Bell, MapPin, Plus,
@@ -8,21 +8,46 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
 
-export function SettingsView({ mockUsers, setMockUsers, user }: { mockUsers: any[], setMockUsers: any, user: any }) {
+export function SettingsView({ user }: { user: any }) {
   const [activeTab, setActiveTab] = useState<'profile' | 'clinic' | 'notifications' | 'security' | 'data' | 'users'>('profile');
+  const [profileUsers, setProfileUsers] = useState<any[]>([]);
+  const [rolePermissions, setRolePermissions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [rolePermissions, setRolePermissions] = useState([
-    { id: 1, name: 'View Master Inventory', admin: true, manager: true, staff: false },
-    { id: 2, name: 'Perform Stock Audit', admin: true, manager: true, staff: true },
-    { id: 3, name: 'Log Stock Usage', admin: true, manager: true, staff: true },
-    { id: 4, name: 'Create Purchase Orders', admin: true, manager: true, staff: false },
-    { id: 5, name: 'View Transaction Records', admin: true, manager: true, staff: false },
-    { id: 6, name: 'Export Reports & Data', admin: true, manager: false, staff: false },
-    { id: 7, name: 'Edit Item Catalog', admin: true, manager: false, staff: false },
-    { id: 8, name: 'Approve Transfers', admin: true, manager: true, staff: false },
-    { id: 9, name: 'Manage Users', admin: true, manager: false, staff: false },
-    { id: 10, name: 'Modify System Settings', admin: true, manager: false, staff: false },
-  ]);
+  const fetchSettingsData = async () => {
+    setLoading(true);
+    try {
+      const [usersResult, permsResult] = await Promise.all([
+        supabase.from('profiles').select('*').order('created_at'),
+        supabase.from('role_permissions').select('*').order('id')
+      ]);
+
+      setProfileUsers((usersResult.data || []).map(u => ({
+        id: u.id,
+        name: u.full_name || u.email,
+        email: u.email,
+        role: u.role,
+        branch: u.assigned_branch || 'All Branches',
+        avatar: u.avatar_url || `https://picsum.photos/seed/${u.id}/100/100`
+      })));
+
+      setRolePermissions((permsResult.data || []).map(p => ({
+        id: p.id,
+        name: p.permission_name,
+        admin: p.admin,
+        manager: p.manager,
+        staff: p.staff
+      })));
+    } catch (err) {
+      console.error('Error fetching settings data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSettingsData();
+  }, []);
 
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
@@ -40,16 +65,29 @@ export function SettingsView({ mockUsers, setMockUsers, user }: { mockUsers: any
     setUserModalOpen(true);
   };
 
-  const handleDeleteUser = (id: number) => {
+  const handleDeleteUser = async (id: string) => {
     if (window.confirm("Remove this user?")) {
-      setMockUsers(mockUsers.filter(u => u.id !== id));
+      try {
+        await supabase.from('profiles').delete().eq('id', id);
+        fetchSettingsData();
+      } catch (err) {
+        console.error('Error deleting user:', err);
+      }
     }
   };
 
-  const togglePermission = (id: number, role: 'admin' | 'manager' | 'staff') => {
+  const togglePermission = async (id: string, role: 'admin' | 'manager' | 'staff') => {
+    const perm = rolePermissions.find(p => p.id === id);
+    if (!perm) return;
+    const newValue = !perm[role];
     setRolePermissions(rolePermissions.map(p =>
-      p.id === id ? { ...p, [role]: !p[role] } : p
+      p.id === id ? { ...p, [role]: newValue } : p
     ));
+    try {
+      await supabase.from('role_permissions').update({ [role]: newValue }).eq('id', id);
+    } catch (err) {
+      console.error('Error updating permission:', err);
+    }
   };
 
   const SettingSection = ({ title, description, children }: { title: string, description: string, children: React.ReactNode }) => (
@@ -278,7 +316,7 @@ export function SettingsView({ mockUsers, setMockUsers, user }: { mockUsers: any
                 </div>
 
                 <div className="space-y-3">
-                  {mockUsers.map((user) => (
+                  {profileUsers.map((user) => (
                     <div key={user.id} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-xl hover:border-primary/20 transition-all group">
                       <div className="flex items-center gap-4">
                         <img src={user.avatar} alt={user.name} className="w-10 h-10 rounded-full object-cover border-2 border-slate-50" />
@@ -470,20 +508,34 @@ export function SettingsView({ mockUsers, setMockUsers, user }: { mockUsers: any
                 </h3>
                 <button type="button" onClick={() => setUserModalOpen(false)} className="p-2 text-indigo-400 hover:text-indigo-600 transition-colors bg-white rounded-lg border border-indigo-100 shadow-sm"><Plus size={16} className="rotate-45" /></button>
               </div>
-              <form onSubmit={(e) => {
+              <form onSubmit={async (e) => {
                 e.preventDefault();
-                if (editingUserId) {
-                  setMockUsers(mockUsers.map(u => u.id === editingUserId ? { ...u, name: userForm.name, email: userForm.email, role: userForm.role, branch: userForm.branch, password: userForm.password } : u));
-                } else {
-                  setMockUsers([{
-                    id: Date.now(),
-                    name: userForm.name,
-                    role: userForm.role,
-                    branch: userForm.branch,
-                    email: userForm.email,
-                    password: userForm.password,
-                    avatar: `https://picsum.photos/seed/${Date.now()}/100/100`
-                  }, ...mockUsers]);
+                try {
+                  if (editingUserId) {
+                    await supabase.from('profiles').update({
+                      full_name: userForm.name,
+                      email: userForm.email,
+                      role: userForm.role,
+                      assigned_branch: userForm.branch,
+                    }).eq('id', editingUserId);
+                  } else {
+                    const { data, error } = await supabase.auth.signUp({
+                      email: userForm.email,
+                      password: userForm.password,
+                      options: { data: { full_name: userForm.name, role: userForm.role } }
+                    });
+                    if (error) throw error;
+                    if (data.user) {
+                      await supabase.from('profiles').update({
+                        assigned_branch: userForm.branch,
+                        role: userForm.role,
+                      }).eq('id', data.user.id);
+                    }
+                  }
+                  fetchSettingsData();
+                } catch (err: any) {
+                  console.error('Error saving user:', err);
+                  alert('Failed to save user: ' + err.message);
                 }
                 setUserModalOpen(false);
               }} className="p-6 space-y-4">

@@ -7,6 +7,8 @@
 -- Drop all tables in reverse dependency order
 drop table if exists public.procurement_order_items cascade;
 drop table if exists public.procurement_orders cascade;
+drop table if exists public.suppliers cascade;
+drop table if exists public.role_permissions cascade;
 drop table if exists public.activities cascade;
 drop table if exists public.audit_mismatches cascade;
 drop table if exists public.audit_logs cascade;
@@ -149,7 +151,29 @@ create table public.activities (
   created_at timestamptz not null default now()
 );
 
--- 10. PROCUREMENT_ORDERS
+-- 10. SUPPLIERS
+create table public.suppliers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  contact_person text,
+  phone text,
+  email text,
+  address text,
+  created_at timestamptz not null default now()
+);
+
+-- 11. ROLE_PERMISSIONS
+create table public.role_permissions (
+  id uuid primary key default gen_random_uuid(),
+  permission_name text not null,
+  admin boolean not null default true,
+  manager boolean not null default false,
+  staff boolean not null default false,
+  created_at timestamptz not null default now(),
+  unique (permission_name)
+);
+
+-- 12. PROCUREMENT_ORDERS
 create table public.procurement_orders (
   id uuid primary key default gen_random_uuid(),
   po_number text not null unique,
@@ -165,7 +189,7 @@ create table public.procurement_orders (
   updated_at timestamptz not null default now()
 );
 
--- 11. PROCUREMENT_ORDER_ITEMS (line items for POs)
+-- 13. PROCUREMENT_ORDER_ITEMS (line items for POs)
 create table public.procurement_order_items (
   id uuid primary key default gen_random_uuid(),
   order_id uuid not null references public.procurement_orders(id) on delete cascade,
@@ -191,6 +215,8 @@ alter table public.transfers enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.audit_mismatches enable row level security;
 alter table public.activities enable row level security;
+alter table public.suppliers enable row level security;
+alter table public.role_permissions enable row level security;
 alter table public.procurement_orders enable row level security;
 alter table public.procurement_order_items enable row level security;
 
@@ -221,6 +247,12 @@ create policy "Authenticated users full access" on public.audit_mismatches
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
 create policy "Authenticated users full access" on public.activities
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
+create policy "Authenticated users full access" on public.suppliers
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
+create policy "Authenticated users full access" on public.role_permissions
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
 create policy "Authenticated users full access" on public.procurement_orders

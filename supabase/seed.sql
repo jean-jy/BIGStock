@@ -78,12 +78,34 @@ insert into public.activities (type, title, location, time) values
   ('restock',  'Restock: Ortho-Brackets',    'Jadehills',         '12 mins ago'),
   ('transfer', 'Transfer: Local Anesthetic', 'Kepong → Puchong',  '1 hour ago');
 
--- 8. PROCUREMENT_ORDERS (sample POs)
+-- 8. SUPPLIERS
+insert into public.suppliers (name) values
+  ('Dentcare Solutions Sdn Bhd'),
+  ('MediGlove Malaysia'),
+  ('ProDental Supplies'),
+  ('MedSupply Asia Pacific')
+on conflict (name) do nothing;
+
+-- 9. ROLE_PERMISSIONS
+insert into public.role_permissions (permission_name, admin, manager, staff) values
+  ('View Master Inventory',    true,  true,  false),
+  ('Perform Stock Audit',      true,  true,  true),
+  ('Log Stock Usage',          true,  true,  true),
+  ('Create Purchase Orders',   true,  true,  false),
+  ('View Transaction Records', true,  true,  false),
+  ('Export Reports & Data',    true,  false, false),
+  ('Edit Item Catalog',        true,  false, false),
+  ('Approve Transfers',        true,  true,  false),
+  ('Manage Users',             true,  false, false),
+  ('Modify System Settings',   true,  false, false)
+on conflict (permission_name) do nothing;
+
+-- 10. PROCUREMENT_ORDERS (sample POs)
 insert into public.procurement_orders (id, po_number, supplier, total_cost, status, expected_delivery, notes, payment_status, created_at) values
   ('b0000000-0000-0000-0000-000000000001', 'PO-2023-001', 'Dentcare Solutions Sdn Bhd', 23210.00, 'SUBMITTED', '2023-11-15', 'Urgent restock — stock critical', 'UNPAID', '2023-10-25T00:00:00Z'),
   ('b0000000-0000-0000-0000-000000000002', 'PO-2023-002', 'MedSupply Asia Pacific',      8450.00, 'DRAFT',     '2023-11-20', null,                              'UNPAID', '2023-10-26T00:00:00Z');
 
--- 9. PROCUREMENT_ORDER_ITEMS
+-- 11. PROCUREMENT_ORDER_ITEMS
 insert into public.procurement_order_items (order_id, item_name, sku, quantity, unit, unit_price) values
   ('b0000000-0000-0000-0000-000000000001', 'Dental Implant Screws 4.0mm',  'IMP-400-T',   50, 'Units',  450.00),
   ('b0000000-0000-0000-0000-000000000001', 'Nitrile Exam Gloves (Medium)', 'GLV-NIT-M',   20, 'Boxes',   35.50),

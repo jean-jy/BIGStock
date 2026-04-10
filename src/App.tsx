@@ -13,7 +13,6 @@ import { supabase } from './supabase';
 
 import type { View } from './types';
 import { BRANCH_NAMES } from './types';
-import { MOCK_INVENTORY } from './data/mockData';
 
 import { LoginView } from './components/LoginView';
 import { SidebarItem } from './components/SidebarItem';
@@ -29,12 +28,6 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [activeBranch, setActiveBranch] = useState('Main Branch');
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
-  const [mockUsers, setMockUsers] = useState([
-    { id: 1, name: 'Dr. Sarah Chen', role: 'Admin', branch: 'All Branches', email: 'admin@bigdental.com', avatar: 'https://picsum.photos/seed/sarah/100/100' },
-    { id: 2, name: 'Marcus Wong', role: 'Branch Manager', branch: 'Kepong Branch', email: 'marcus.w@bigdental.com', avatar: 'https://picsum.photos/seed/marcus/100/100' },
-    { id: 3, name: 'Aisha Rahman', role: 'Staff', branch: 'Jadehills Branch', email: 'aisha.r@bigdental.com', avatar: 'https://picsum.photos/seed/aisha/100/100' },
-    { id: 4, name: 'Kevin Tan', role: 'Staff', branch: 'Puchong Branch', email: 'kevin.t@bigdental.com', avatar: 'https://picsum.photos/seed/kevin/100/100' },
-  ]);
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
 
@@ -46,14 +39,13 @@ export default function App() {
         return;
       }
 
-      const fallback = mockUsers.find(u => u.email === session.user.email);
       const u = {
         id: session.user.id,
         email: session.user.email,
-        displayName: fallback?.name || session.user.email,
-        role: fallback?.role || 'Staff',
-        assignedBranch: fallback?.branch || 'Main Branch',
-        photoURL: fallback?.avatar || ''
+        displayName: session.user.user_metadata?.full_name || session.user.email,
+        role: session.user.user_metadata?.role || 'Staff',
+        assignedBranch: 'Main Branch',
+        photoURL: session.user.user_metadata?.avatar_url || ''
       };
 
       setUser(u);
@@ -70,7 +62,7 @@ export default function App() {
         .maybeSingle()
         .then(({ data: profile }) => {
           if (profile) {
-            setUser(prev => prev ? {
+            setUser((prev: any) => prev ? {
               ...prev,
               displayName: profile.full_name || prev.displayName,
               role: profile.role || prev.role,
@@ -78,8 +70,7 @@ export default function App() {
               photoURL: profile.avatar_url || prev.photoURL
             } : prev);
           }
-        })
-        .catch(() => {});
+        }, () => {});
     });
 
     return () => subscription.unsubscribe();
@@ -282,7 +273,7 @@ export default function App() {
             ) : currentView === 'inventory' ? (
               <InventoryView key={`inventory-${activeBranch}`} activeBranch={activeBranch} />
             ) : currentView === 'settings' ? (
-              <SettingsView mockUsers={mockUsers} setMockUsers={setMockUsers} user={user} />
+              <SettingsView user={user} />
             ) : (
               <AuditChecklist key="audit" onBack={() => setCurrentView('dashboard')} />
             )}
@@ -293,7 +284,6 @@ export default function App() {
       <TransferModal
         isOpen={isTransferModalOpen}
         onClose={() => setIsTransferModalOpen(false)}
-        inventory={MOCK_INVENTORY}
       />
     </div>
   );

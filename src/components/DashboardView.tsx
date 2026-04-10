@@ -8,8 +8,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
-import type { InventoryItem, ProcurementOrder, POLineItem } from '../types';
-import { MOCK_INVENTORY, MOCK_AUDIT_LOGS } from '../data/mockData';
+import type { InventoryItem, ProcurementOrder, POLineItem, AuditLog } from '../types';
 import { StatsCard } from './StatsCard';
 import { StatusBadge } from './StatusBadge';
 
@@ -22,21 +21,60 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const [poModalOpen, setPoModalOpen] = useState(false);
   const [usageModalOpen, setUsageModalOpen] = useState(false);
   const [usageForm, setUsageForm] = useState({ itemId: '', quantity: 1, remarks: '' });
+  const [auditLogs, setAuditLogs] = useState<(AuditLog & { mismatchedItems?: any[] })[]>([]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [invResult, txResult] = await Promise.all([
+      const [invResult, txResult, auditResult, poResult, supplierResult] = await Promise.all([
         supabase.from('inventory').select('*').order('name'),
-        supabase
-          .from('inventory_transactions')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(20)
+        supabase.from('inventory_transactions').select('*').order('created_at', { ascending: false }).limit(20),
+        supabase.from('audit_logs').select('*, audit_mismatches(*)').order('created_at', { ascending: false }),
+        supabase.from('procurement_orders').select('*, procurement_order_items(*)').order('created_at', { ascending: false }),
+        supabase.from('suppliers').select('name').order('name')
       ]);
 
       setItems((invResult.data || []).map(i => ({ ...i, lastAudit: i.last_audit || 'Never' })));
       setTransactions(txResult.data || []);
+
+      // Map audit logs
+      setAuditLogs((auditResult.data || []).map(log => ({
+        id: log.id,
+        date: log.date,
+        branch: log.branch,
+        auditor: log.auditor,
+        auditorAvatar: log.auditor_avatar || '',
+        itemsChecked: log.items_checked,
+        status: log.status,
+        isRecent: log.is_recent,
+        mismatchedItems: log.audit_mismatches?.length > 0 ? log.audit_mismatches : undefined
+      })));
+
+      // Map procurement orders
+      const mappedOrders: ProcurementOrder[] = (poResult.data || []).map(po => ({
+        id: po.id,
+        poNumber: po.po_number,
+        supplier: po.supplier,
+        items: (po.procurement_order_items || []).map((li: any) => ({
+          itemName: li.item_name,
+          sku: li.sku,
+          quantity: li.quantity,
+          unit: li.unit,
+          unitPrice: Number(li.unit_price)
+        })),
+        totalCost: Number(po.total_cost),
+        status: po.status,
+        expectedDelivery: po.expected_delivery || '',
+        notes: po.notes || '',
+        createdAt: new Date(po.created_at).toLocaleDateString('en-MY', { year: 'numeric', month: 'short', day: 'numeric' }),
+        paymentStatus: po.payment_status || undefined,
+        paymentSubmittedDate: po.payment_submitted_date ? new Date(po.payment_submitted_date).toLocaleDateString('en-MY', { year: 'numeric', month: 'short', day: 'numeric' }) : undefined,
+        paymentPaidDate: po.payment_paid_date ? new Date(po.payment_paid_date).toLocaleDateString('en-MY', { year: 'numeric', month: 'short', day: 'numeric' }) : undefined,
+      }));
+      setOrders(mappedOrders);
+
+      // Map suppliers
+      setSuppliersList((supplierResult.data || []).map(s => s.name));
     } catch (err) {
       console.error("Error fetching dashboard data:", err);
     } finally {
@@ -84,33 +122,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
     setUsageForm({ itemId: '', quantity: 1, remarks: '' });
   };
 
-  const [orders, setOrders] = useState<ProcurementOrder[]>([
-    {
-      id: '1', poNumber: 'PO-2023-001', supplier: 'Dentcare Solutions Sdn Bhd',
-      items: [
-        { itemName: 'Dental Implant Screws 4.0mm', sku: 'IMP-400-T', quantity: 50, unit: 'Units', unitPrice: 450.00 },
-        { itemName: 'Nitrile Exam Gloves (Medium)', sku: 'GLV-NIT-M', quantity: 20, unit: 'Boxes', unitPrice: 35.50 }
-      ],
-      totalCost: 23210.00, status: 'SUBMITTED', expectedDelivery: '2023-11-15',
-      notes: 'Urgent restock — stock critical', createdAt: 'Oct 25, 2023'
-    },
-    {
-      id: '2', poNumber: 'PO-2023-002', supplier: 'MediGlove Malaysia',
-      items: [{ itemName: 'Nitrile Exam Gloves (Medium)', sku: 'GLV-NIT-M', quantity: 100, unit: 'Boxes', unitPrice: 35.50 }],
-      totalCost: 3550.00, status: 'RECEIVED', expectedDelivery: '2023-11-01',
-      notes: 'Monthly restock order', createdAt: 'Oct 20, 2023',
-      paymentStatus: 'PAID', paymentSubmittedDate: 'Oct 21, 2023', paymentPaidDate: 'Oct 22, 2023'
-    },
-    {
-      id: '3', poNumber: 'PO-2023-003', supplier: 'ProDental Supplies',
-      items: [
-        { itemName: 'Alginate Impression Material', sku: 'ALG-FST-500', quantity: 30, unit: 'Packs', unitPrice: 125.00 },
-        { itemName: 'Dental Implant Screws 4.0mm', sku: 'IMP-400-T', quantity: 10, unit: 'Units', unitPrice: 450.00 }
-      ],
-      totalCost: 8250.00, status: 'DRAFT', expectedDelivery: '2023-12-01',
-      notes: '', createdAt: 'Oct 26, 2023'
-    }
-  ]);
+  const [orders, setOrders] = useState<ProcurementOrder[]>([]);
 
   const emptyLine = (): POLineItem => ({ itemName: '', sku: '', quantity: 0, unit: 'Units', unitPrice: 0 });
   const [poFormSupplier, setPoFormSupplier] = useState('');
@@ -119,7 +131,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const [poFormLines, setPoFormLines] = useState<POLineItem[]>([emptyLine()]);
   const [expandedPO, setExpandedPO] = useState<string | null>(null);
   const [editingPOId, setEditingPOId] = useState<string | null>(null);
-  const [suppliersList, setSuppliersList] = useState<string[]>(['Dentcare Solutions Sdn Bhd', 'MediGlove Malaysia', 'ProDental Supplies']);
+  const [suppliersList, setSuppliersList] = useState<string[]>([]);
   const [printPOId, setPrintPOId] = useState<string | null>(null);
 
   const nextPoNumber = editingPOId ? orders.find(o => o.id === editingPOId)?.poNumber || '' : `PO-${new Date().getFullYear()}-${String(orders.length + 1).padStart(3, '0')}`;
@@ -132,33 +144,49 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
 
   const poFormTotal = poFormLines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
 
-  const handleCreatePO = (e: React.FormEvent) => {
+  const handleCreatePO = async (e: React.FormEvent) => {
     e.preventDefault();
     const validLines = poFormLines.filter(l => l.itemName && l.quantity > 0);
     if (validLines.length === 0) return;
 
-    if (editingPOId) {
-      setOrders(orders.map(o => o.id === editingPOId ? {
-        ...o,
-        supplier: poFormSupplier,
-        items: validLines,
-        totalCost: validLines.reduce((s, l) => s + l.quantity * l.unitPrice, 0),
-        expectedDelivery: poFormDelivery,
-        notes: poFormNotes,
-      } : o));
-    } else {
-      const newOrder: ProcurementOrder = {
-        id: Math.random().toString(36).substr(2, 9),
-        poNumber: nextPoNumber,
-        supplier: poFormSupplier,
-        items: validLines,
-        totalCost: validLines.reduce((s, l) => s + l.quantity * l.unitPrice, 0),
-        status: 'DRAFT',
-        expectedDelivery: poFormDelivery,
-        notes: poFormNotes,
-        createdAt: new Date().toLocaleDateString('en-MY', { year: 'numeric', month: 'short', day: 'numeric' })
-      };
-      setOrders([newOrder, ...orders]);
+    const totalCost = validLines.reduce((s, l) => s + l.quantity * l.unitPrice, 0);
+
+    try {
+      if (editingPOId) {
+        await supabase.from('procurement_orders').update({
+          supplier: poFormSupplier,
+          total_cost: totalCost,
+          expected_delivery: poFormDelivery || null,
+          notes: poFormNotes,
+          updated_at: new Date().toISOString()
+        }).eq('id', editingPOId);
+
+        // Delete old line items and re-insert
+        await supabase.from('procurement_order_items').delete().eq('order_id', editingPOId);
+        await supabase.from('procurement_order_items').insert(
+          validLines.map(l => ({ order_id: editingPOId, item_name: l.itemName, sku: l.sku, quantity: l.quantity, unit: l.unit, unit_price: l.unitPrice }))
+        );
+      } else {
+        const { data: newPO, error } = await supabase.from('procurement_orders').insert({
+          po_number: nextPoNumber,
+          supplier: poFormSupplier,
+          total_cost: totalCost,
+          status: 'DRAFT',
+          expected_delivery: poFormDelivery || null,
+          notes: poFormNotes,
+        }).select('id').single();
+
+        if (error) throw error;
+
+        await supabase.from('procurement_order_items').insert(
+          validLines.map(l => ({ order_id: newPO.id, item_name: l.itemName, sku: l.sku, quantity: l.quantity, unit: l.unit, unit_price: l.unitPrice }))
+        );
+      }
+
+      fetchData();
+    } catch (err) {
+      console.error('Error saving PO:', err);
+      alert('Failed to save purchase order');
     }
 
     setPoFormSupplier(''); setPoFormDelivery(''); setPoFormNotes(''); setPoFormLines([emptyLine()]);
@@ -183,38 +211,70 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
     }, 200);
   };
 
-  const updatePOStatus = (id: string, newStatus: ProcurementOrder['status']) => {
-    setOrders(orders.map(o => o.id === id ? { ...o, status: newStatus } : o));
-  };
-
-  const handleGoodsReceived = (order: ProcurementOrder) => {
-    for (const line of order.items) {
-      const invItem = MOCK_INVENTORY.find(i => i.sku === line.sku);
-      if (invItem) {
-        invItem.total += line.quantity;
-        if (invItem.total > 50) invItem.status = 'HEALTHY';
-        else if (invItem.total > 20) invItem.status = 'BALANCED';
-        else invItem.status = 'REORDER';
-      }
+  const updatePOStatus = async (id: string, newStatus: ProcurementOrder['status']) => {
+    try {
+      await supabase.from('procurement_orders').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', id);
+      fetchData();
+    } catch (err) {
+      console.error('Error updating PO status:', err);
     }
-    const updatedOrder = { ...order, status: 'RECEIVED' as const, paymentStatus: 'UNPAID' as const };
-    setOrders(prev => prev.map(o => o.id === order.id ? updatedOrder : o));
   };
 
-  const updatePaymentStatus = (orderId: string, status: 'PAYMENT_SUBMITTED' | 'PAID') => {
-    const now = new Date().toLocaleDateString('en-MY', { year: 'numeric', month: 'short', day: 'numeric' });
-    setOrders(prev => prev.map(o => {
-      if (o.id !== orderId) return o;
-      if (status === 'PAYMENT_SUBMITTED') {
-        return { ...o, paymentStatus: status, paymentSubmittedDate: now };
+  const handleGoodsReceived = async (order: ProcurementOrder) => {
+    try {
+      // Update inventory quantities for each line item
+      for (const line of order.items) {
+        const invItem = items.find(i => i.sku === line.sku);
+        if (invItem) {
+          const newTotal = invItem.total + line.quantity;
+          const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
+          await supabase.from('inventory').update({ total: newTotal, status, last_audit: new Date().toISOString() }).eq('id', invItem.id);
+
+          // Record stock-in transaction
+          await supabase.from('inventory_transactions').insert({
+            type: 'STOCK_IN',
+            item_id: invItem.id,
+            item_name: invItem.name,
+            quantity: line.quantity,
+            unit: line.unit,
+            from_location: `PO: ${order.poNumber} (${order.supplier})`,
+            to_location: activeBranch,
+            performed_by: user?.id
+          });
+        }
       }
-      return { ...o, paymentStatus: status, paymentPaidDate: now, paymentSubmittedDate: o.paymentSubmittedDate || now };
-    }));
+
+      // Update PO status
+      await supabase.from('procurement_orders').update({ status: 'RECEIVED', payment_status: 'UNPAID', updated_at: new Date().toISOString() }).eq('id', order.id);
+      fetchData();
+    } catch (err) {
+      console.error('Error receiving goods:', err);
+    }
   };
 
-  const deletePO = (id: string) => {
+  const updatePaymentStatus = async (orderId: string, status: 'PAYMENT_SUBMITTED' | 'PAID') => {
+    try {
+      const updates: any = { payment_status: status, updated_at: new Date().toISOString() };
+      if (status === 'PAYMENT_SUBMITTED') {
+        updates.payment_submitted_date = new Date().toISOString();
+      } else {
+        updates.payment_paid_date = new Date().toISOString();
+      }
+      await supabase.from('procurement_orders').update(updates).eq('id', orderId);
+      fetchData();
+    } catch (err) {
+      console.error('Error updating payment status:', err);
+    }
+  };
+
+  const deletePO = async (id: string) => {
     if (window.confirm('Delete this procurement order?')) {
-      setOrders(orders.filter(o => o.id !== id));
+      try {
+        await supabase.from('procurement_orders').delete().eq('id', id);
+        fetchData();
+      } catch (err) {
+        console.error('Error deleting PO:', err);
+      }
     }
   };
 
@@ -445,7 +505,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {MOCK_AUDIT_LOGS.map((log) => (
+                {auditLogs.map((log) => (
                   <React.Fragment key={log.id}>
                     <tr
                       className={`${log.isRecent ? 'bg-primary/5' : ''} hover:bg-slate-50/50 transition-colors ${log.mismatchedItems ? 'cursor-pointer' : ''}`}
@@ -855,9 +915,10 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                         <option value="">Select Supplier...</option>
                         {suppliersList.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
-                      <button type="button" onClick={() => {
+                      <button type="button" onClick={async () => {
                         const newSup = window.prompt("Enter new supplier name:");
                         if (newSup && newSup.trim() && !suppliersList.includes(newSup.trim())) {
+                          await supabase.from('suppliers').insert({ name: newSup.trim() });
                           setSuppliersList([...suppliersList, newSup.trim()]);
                           setPoFormSupplier(newSup.trim());
                         }
@@ -865,8 +926,9 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                         <Plus size={16} />
                       </button>
                       {poFormSupplier && (
-                        <button type="button" onClick={() => {
+                        <button type="button" onClick={async () => {
                           if (window.confirm(`Delete supplier "${poFormSupplier}" from list?`)) {
+                            await supabase.from('suppliers').delete().eq('name', poFormSupplier);
                             setSuppliersList(suppliersList.filter(s => s !== poFormSupplier));
                             setPoFormSupplier('');
                           }

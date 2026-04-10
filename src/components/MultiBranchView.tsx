@@ -1,15 +1,56 @@
+import { useState, useEffect } from 'react';
 import { ArrowRightLeft, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
+import { supabase } from '../supabase';
 import { PendingTransfersList } from './PendingTransfersList';
 
+interface MultiBranchItem {
+  id: string;
+  name: string;
+  category: string;
+  branches: Record<string, number>;
+  total: number;
+}
+
 export function MultiBranchView({ onOpenTransfer }: { onOpenTransfer: () => void, key?: string }) {
-  const multiBranchData = [
-    { id: '1', name: 'Dental Implant Screws 4.0mm', category: 'Surgery', kepong: 5, jadehills: 8, setiawalk: 5, total: 18 },
-    { id: '2', name: 'Nitrile Exam Gloves (Medium)', category: 'Consumables', kepong: 45, jadehills: 70, setiawalk: 50, total: 165 },
-    { id: '3', name: 'Alginate Impression Material', category: 'Prosthetics', kepong: 12, jadehills: 20, setiawalk: 15, total: 47 },
-    { id: '4', name: 'Composite Resin (A2 Shade)', category: 'Consumables', kepong: 4, jadehills: 12, setiawalk: 8, total: 24 },
-    { id: '5', name: 'Sterile Gauze Pads (4x4)', category: 'Consumables', kepong: 150, jadehills: 200, setiawalk: 150, total: 500 },
-  ];
+  const [multiBranchData, setMultiBranchData] = useState<MultiBranchItem[]>([]);
+  const [branchNames, setBranchNames] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [branchResult, biResult] = await Promise.all([
+          supabase.from('branches').select('id, name').order('name'),
+          supabase.from('branch_inventory').select('branch_id, quantity, item_id, inventory(id, name, category)')
+        ]);
+
+        const branches = (branchResult.data || []).map(b => b.id);
+        setBranchNames(branches);
+
+        const itemMap = new Map<string, MultiBranchItem>();
+        for (const row of biResult.data || []) {
+          const inv = row.inventory as any;
+          if (!inv) continue;
+          if (!itemMap.has(inv.id)) {
+            itemMap.set(inv.id, { id: inv.id, name: inv.name, category: inv.category, branches: {}, total: 0 });
+          }
+          const item = itemMap.get(inv.id)!;
+          item.branches[row.branch_id] = row.quantity;
+          item.total += row.quantity;
+        }
+
+        setMultiBranchData(Array.from(itemMap.values()));
+      } catch (err) {
+        console.error('Error fetching multi-branch data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   return (
     <motion.div
@@ -22,7 +63,7 @@ export function MultiBranchView({ onOpenTransfer }: { onOpenTransfer: () => void
         <div>
           <span className="text-primary font-bold text-xs uppercase tracking-widest mb-2 block">Network Synchronization</span>
           <h1 className="text-4xl font-manrope font-extrabold text-slate-900 tracking-tight">Multi-Branch Inventory</h1>
-          <p className="text-slate-500 font-inter text-sm mt-1">Comparative stock analysis across Kepong, Jadehills, and Setiawalk branches.</p>
+          <p className="text-slate-500 font-inter text-sm mt-1">Comparative stock analysis across all branches.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -43,45 +84,46 @@ export function MultiBranchView({ onOpenTransfer }: { onOpenTransfer: () => void
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-100">
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Item Details</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Category</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center bg-blue-50/30">Kepong</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center bg-blue-50/30">Jadehills</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center bg-purple-50/30">Setiawalk</th>
-                <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Total Network</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {multiBranchData.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50/30 transition-colors group">
-                  <td className="px-6 py-5">
-                    <p className="text-sm font-bold text-slate-900">{item.name}</p>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-tight">SKU: MB-{item.id}00-X</p>
-                  </td>
-                  <td className="px-6 py-5">
-                    <span className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase">{item.category}</span>
-                  </td>
-                  <td className="px-6 py-5 text-center bg-blue-50/10">
-                    <span className={`text-sm font-bold ${item.kepong < 10 ? 'text-tertiary' : 'text-slate-700'}`}>{item.kepong}</span>
-                  </td>
-                  <td className="px-6 py-5 text-center bg-blue-50/10">
-                    <span className="text-sm font-bold text-slate-700">{item.jadehills}</span>
-                  </td>
-                  <td className="px-6 py-5 text-center bg-purple-50/10">
-                    <span className="text-sm font-bold text-slate-700">{item.setiawalk}</span>
-                  </td>
-                  <td className="px-6 py-5 text-right">
-                    <span className="text-sm font-extrabold text-primary">{item.total}</span>
-                  </td>
+        {loading ? (
+          <div className="p-12 text-center text-slate-400 text-sm">Loading branch inventory...</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50/50 border-b border-slate-100">
+                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Item Details</th>
+                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Category</th>
+                  {branchNames.map(branch => (
+                    <th key={branch} className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center bg-blue-50/30">{branch}</th>
+                  ))}
+                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Total Network</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {multiBranchData.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50/30 transition-colors group">
+                    <td className="px-6 py-5">
+                      <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                    </td>
+                    <td className="px-6 py-5">
+                      <span className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase">{item.category}</span>
+                    </td>
+                    {branchNames.map(branch => (
+                      <td key={branch} className="px-6 py-5 text-center bg-blue-50/10">
+                        <span className={`text-sm font-bold ${(item.branches[branch] || 0) < 10 ? 'text-tertiary' : 'text-slate-700'}`}>
+                          {item.branches[branch] || 0}
+                        </span>
+                      </td>
+                    ))}
+                    <td className="px-6 py-5 text-right">
+                      <span className="text-sm font-extrabold text-primary">{item.total}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -93,25 +135,7 @@ export function MultiBranchView({ onOpenTransfer }: { onOpenTransfer: () => void
               <span className="text-[10px] font-bold text-slate-500 uppercase">Healthy Supply</span>
             </div>
           </div>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Last Synced: 2 mins ago</p>
-        </div>
-      </div>
-
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100/50">
-          <h5 className="text-xs font-bold text-blue-800 uppercase mb-4">Kepong Performance</h5>
-          <p className="text-2xl font-extrabold text-blue-900">88%</p>
-          <p className="text-[10px] text-blue-600 font-medium mt-1">Inventory Efficiency Score</p>
-        </div>
-        <div className="bg-blue-50/50 p-6 rounded-2xl border border-blue-100/50">
-          <h5 className="text-xs font-bold text-blue-800 uppercase mb-4">Jadehills Performance</h5>
-          <p className="text-2xl font-extrabold text-blue-900">94%</p>
-          <p className="text-[10px] text-blue-600 font-medium mt-1">Inventory Efficiency Score</p>
-        </div>
-        <div className="bg-purple-50/50 p-6 rounded-2xl border border-purple-100/50">
-          <h5 className="text-xs font-bold text-purple-800 uppercase mb-4">Setiawalk Performance</h5>
-          <p className="text-2xl font-extrabold text-purple-900">82%</p>
-          <p className="text-[10px] text-purple-600 font-medium mt-1">Inventory Efficiency Score</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Live from Database</p>
         </div>
       </div>
 

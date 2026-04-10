@@ -1,20 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, CheckCircle2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { BRANCH_NAMES } from '../types';
 import type { InventoryItem } from '../types';
-import { MOCK_INVENTORY } from '../data/mockData';
 
-export function TransferModal({ isOpen, onClose, inventory }: { isOpen: boolean, onClose: () => void, inventory: InventoryItem[] }) {
+export function TransferModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
   const [fromBranch, setFromBranch] = useState('Kepong');
   const [toBranch, setToBranch] = useState('Jadehills');
   const [selectedItem, setSelectedItem] = useState('');
   const [quantity, setQuantity] = useState<number | ''>(1);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
 
   const branches = [...BRANCH_NAMES];
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const fetchInventory = async () => {
+      const { data } = await supabase.from('inventory').select('*').order('name');
+      setInventory((data || []).map(item => ({
+        ...item,
+        lastAudit: item.last_audit || 'Never',
+        branchStock: {}
+      })));
+    };
+    fetchInventory();
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,11 +54,22 @@ export function TransferModal({ isOpen, onClose, inventory }: { isOpen: boolean,
         console.warn("Supabase skipped for local dev transfer.");
       }
 
-      // Immediately apply transfer to MOCK_INVENTORY for instant feedback
-      if (item.branchStock) {
-        item.branchStock[fromBranch] = Math.max(0, (item.branchStock[fromBranch] || 0) - qty);
-        item.branchStock[toBranch] = (item.branchStock[toBranch] || 0) + qty;
-        item.total = Object.values(item.branchStock).reduce((a, b) => a + b, 0);
+      // Update branch_inventory in Supabase
+      try {
+        await supabase.rpc('transfer_branch_stock', undefined); // fallback: manual updates
+      } catch {
+        // Update branch_inventory directly
+        const { data: fromRow } = await supabase.from('branch_inventory').select('id, quantity').eq('branch_id', fromBranch).eq('item_id', selectedItem).maybeSingle();
+        const { data: toRow } = await supabase.from('branch_inventory').select('id, quantity').eq('branch_id', toBranch).eq('item_id', selectedItem).maybeSingle();
+
+        if (fromRow) {
+          await supabase.from('branch_inventory').update({ quantity: Math.max(0, fromRow.quantity - qty) }).eq('id', fromRow.id);
+        }
+        if (toRow) {
+          await supabase.from('branch_inventory').update({ quantity: toRow.quantity + qty }).eq('id', toRow.id);
+        } else {
+          await supabase.from('branch_inventory').insert({ branch_id: toBranch, item_id: selectedItem, quantity: qty });
+        }
       }
 
       setSuccess(true);
