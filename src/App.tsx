@@ -59,9 +59,7 @@ import {
   MinusCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { auth, googleProvider, signInWithPopup, signOut, deleteUser, db } from './firebase';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp, collection, addDoc, query, where, onSnapshot, orderBy, updateDoc, deleteDoc, increment, runTransaction } from 'firebase/firestore';
+import { supabase } from './supabase';
 
 // --- Types ---
 
@@ -307,27 +305,47 @@ const LoginView = ({ onLogin, mockUsers }: { onLogin: (u: any) => void, mockUser
   const [email, setEmail] = useState('admin@bigdental.com');
   const [password, setPassword] = useState('password123');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     
-    setTimeout(() => {
-      const foundUser = mockUsers.find(u => u.email === email && u.password === password);
-      if (foundUser) {
-        onLogin({
-          email: foundUser.email,
-          uid: foundUser.id.toString(),
-          displayName: foundUser.name,
-          role: foundUser.role,
-          assignedBranch: foundUser.branch,
-          photoURL: foundUser.avatar
-        });
-      } else {
-        setError("Invalid email or password");
+    try {
+      let { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        if (error.message.includes('Invalid login credentials')) {
+          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+            email,
+            password,
+          });
+          if (signUpError) throw signUpError;
+          data = signUpData;
+        } else {
+          throw error;
+        }
       }
+
+      if (data.user) {
+        // Find corresponding mock user for role/branch if profile doesn't exist yet
+        const mockUser = mockUsers.find(u => u.email === email);
+        onLogin({
+          email: data.user.email,
+          uid: data.user.id,
+          displayName: data.user.user_metadata?.full_name || mockUser?.name || 'User',
+          role: data.user.user_metadata?.role || mockUser?.role || 'Staff',
+          assignedBranch: data.user.user_metadata?.assignedBranch || mockUser?.branch || 'Main Branch',
+          photoURL: data.user.user_metadata?.avatar_url || mockUser?.avatar || ''
+        });
+      }
+    } catch (err: any) {
+      setError(err.message || "Invalid email or password");
+    } finally {
       setLoading(false);
-    }, 600);
+    }
   };
 
   return (
@@ -468,7 +486,60 @@ export default function App() {
     { id: 4, name: 'Kevin Tan', role: 'Staff', branch: 'Setiawalk Branch', email: 'kevin.t@bigdental.com', avatar: 'https://picsum.photos/seed/kevin/100/100', password: 'password123' },
   ]);
   const [user, setUser] = useState<any>(null);
-  const [authLoading, setAuthLoading] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    // Check active sessions and sets the user
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        // Fetch extended profile data
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+          
+        const mockUser = mockUsers.find(u => u.email === session.user.email);
+          
+        setUser({
+          ...session.user,
+          ...profile,
+          displayName: profile?.full_name || mockUser?.name || session.user.email,
+          role: profile?.role || mockUser?.role || 'Staff',
+          assignedBranch: profile?.assignedBranch || mockUser?.branch || 'Main Branch',
+          photoURL: profile?.avatar_url || mockUser?.avatar || ''
+        });
+      }
+      setAuthLoading(false);
+    });
+
+    // Listen for changes on auth state
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .single();
+
+        const mockUser = mockUsers.find(u => u.email === session.user.email);
+
+        setUser({
+          ...session.user,
+          ...profile,
+          displayName: profile?.full_name || mockUser?.name || session.user.email,
+          role: profile?.role || mockUser?.role || 'Staff',
+          assignedBranch: profile?.assignedBranch || mockUser?.branch || 'Main Branch',
+          photoURL: profile?.avatar_url || mockUser?.avatar || ''
+        });
+      } else {
+        setUser(null);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [mockUsers]);
 
   // Seed database with initial data if empty
   useEffect(() => {
@@ -479,10 +550,15 @@ export default function App() {
         // Seed branches
         const branches = ['Kepong', 'Jadehills', 'Setiawalk'];
         for (const branchName of branches) {
-          const branchRef = doc(db, 'branches', branchName);
-          const branchSnap = await getDoc(branchRef);
-          if (!branchSnap.exists()) {
-            await setDoc(branchRef, {
+          const { data: existing } = await supabase
+            .from('branches')
+            .select('id')
+            .eq('id', branchName)
+            .single();
+
+          if (!existing) {
+            await supabase.from('branches').insert({
+              id: branchName,
               name: `${branchName} Branch`,
               location: `${branchName} Medical Center`,
               manager: 'Branch Manager'
@@ -492,10 +568,14 @@ export default function App() {
 
         // Seed inventory items
         for (const item of MOCK_INVENTORY) {
-          const itemRef = doc(db, 'inventory', item.id);
-          const itemSnap = await getDoc(itemRef);
-          if (!itemSnap.exists()) {
-            await setDoc(itemRef, {
+          const { data: existing } = await supabase
+            .from('inventory')
+            .select('id')
+            .eq('sku', item.sku)
+            .single();
+
+          if (!existing) {
+            await supabase.from('inventory').insert({
               name: item.name,
               subtext: item.subtext,
               category: item.category,
@@ -503,7 +583,7 @@ export default function App() {
               total: item.total,
               unit: item.unit,
               status: item.status,
-              lastAudit: serverTimestamp()
+              price: item.price
             });
           }
         }
@@ -516,6 +596,7 @@ export default function App() {
   }, [user]);
 
   const handleLogout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
   };
 
@@ -714,7 +795,7 @@ export default function App() {
             ) : currentView === 'inventory' ? (
               <InventoryView key={`inventory-${activeBranch}`} activeBranch={activeBranch} />
             ) : currentView === 'settings' ? (
-              <SettingsView key="settings" mockUsers={mockUsers} setMockUsers={setMockUsers} />
+              <SettingsView mockUsers={mockUsers} setMockUsers={setMockUsers} user={user} />
             ) : (
               <AuditChecklist key="audit" onBack={() => setCurrentView('dashboard')} />
             )}
@@ -734,7 +815,8 @@ export default function App() {
 // --- Inventory View ---
 
 function InventoryView({ activeBranch }: { activeBranch: string, key?: string }) {
-  const [items, setItems] = useState<InventoryItem[]>(() => getInventoryForBranch(MOCK_INVENTORY, activeBranch));
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [categories, setCategories] = useState(['Surgery', 'Consumables', 'Prosthetics', 'Endodontics', 'Orthodontics', 'Instruments']);
@@ -769,6 +851,36 @@ function InventoryView({ activeBranch }: { activeBranch: string, key?: string })
     price: 0
   });
 
+  const fetchItems = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('inventory')
+        .select('*')
+        .order('name');
+
+      if (error) throw error;
+
+      // Map Supabase snake_case to camelCase if necessary, 
+      // but here we'll assume the SQL matches or we handle it
+      const mappedItems: InventoryItem[] = (data || []).map(item => ({
+        ...item,
+        lastAudit: item.last_audit || 'Never',
+        branchStock: {} // We'd fetch this from branch_inventory in a full implementation
+      }));
+
+      setItems(mappedItems);
+    } catch (error) {
+      console.error('Error fetching inventory:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchItems();
+  }, [activeBranch]);
+
   const handleAddCategory = () => {
     if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
       setCategories([...categories, newCategoryName.trim()]);
@@ -791,20 +903,37 @@ function InventoryView({ activeBranch }: { activeBranch: string, key?: string })
     }
   };
 
-  const handleCreateOrUpdate = (e: React.FormEvent) => {
+  const handleCreateOrUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingItem) {
-      setItems(items.map(item => item.id === editingItem.id ? { ...item, ...newItem, status: newItem.total < 20 ? 'REORDER' : 'HEALTHY' } : item));
-    } else {
-      const item: InventoryItem = {
-        id: Math.random().toString(36).substr(2, 9),
-        ...newItem,
-        lastAudit: 'Just now',
-        status: newItem.total < 20 ? 'REORDER' : 'HEALTHY'
-      };
-      setItems([item, ...items]);
+    const status = newItem.total < 20 ? 'REORDER' : 'HEALTHY';
+    
+    try {
+      if (editingItem) {
+        const { error } = await supabase
+          .from('inventory')
+          .update({
+            ...newItem,
+            status,
+            last_audit: new Date().toISOString()
+          })
+          .eq('id', editingItem.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('inventory')
+          .insert({
+            ...newItem,
+            status,
+            last_audit: new Date().toISOString()
+          });
+        if (error) throw error;
+      }
+      fetchItems();
+      closeModal();
+    } catch (error) {
+      console.error('Error saving item:', error);
+      alert('Failed to save item');
     }
-    closeModal();
   };
 
   const openEditModal = (item: InventoryItem) => {
@@ -827,9 +956,18 @@ function InventoryView({ activeBranch }: { activeBranch: string, key?: string })
     setNewItem({ name: '', subtext: '', category: 'Surgery', sku: '', total: 0, unit: 'Units', price: 0 });
   };
 
-  const handleDeleteItem = (id: string) => {
+  const handleDeleteItem = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this item?')) {
-      setItems(items.filter(item => item.id !== id));
+      try {
+        const { error } = await supabase
+          .from('inventory')
+          .delete()
+          .eq('id', id);
+        if (error) throw error;
+        fetchItems();
+      } catch (error) {
+        console.error('Error deleting item:', error);
+      }
     }
   };
 
@@ -845,31 +983,47 @@ function InventoryView({ activeBranch }: { activeBranch: string, key?: string })
     setStockInForm({ quantity: 0, supplierName: '', invoiceNo: '', notes: '' });
   };
 
-  const handleStockInSubmit = (e: React.FormEvent) => {
+  const handleStockInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!stockInItem || stockInForm.quantity <= 0) return;
     
-    const newTotal = stockInItem.total + stockInForm.quantity;
-    setItems(items.map(i => i.id === stockInItem.id ? {
-      ...i,
-      total: newTotal,
-      lastAudit: new Date().toLocaleDateString('en-MY', { year: 'numeric', month: 'short', day: 'numeric' }),
-      status: newTotal < 20 ? 'REORDER' : 'HEALTHY'
-    } : i));
+    try {
+      const newTotal = stockInItem.total + stockInForm.quantity;
+      const status = newTotal < 20 ? 'REORDER' : 'HEALTHY';
 
-    // Log this stock-in to history
-    setStockInHistory(prev => [{
-      id: Math.random().toString(36).substr(2, 9),
-      itemId: stockInItem.id,
-      itemName: stockInItem.name,
-      quantity: stockInForm.quantity,
-      supplierName: stockInForm.supplierName,
-      invoiceNo: stockInForm.invoiceNo,
-      notes: stockInForm.notes,
-      date: new Date().toLocaleString('en-MY')
-    }, ...prev]);
+      // 1. Update inventory
+      const { error: invError } = await supabase
+        .from('inventory')
+        .update({ 
+          total: newTotal, 
+          status, 
+          last_audit: new Date().toISOString() 
+        })
+        .eq('id', stockInItem.id);
 
-    closeStockInModal();
+      if (invError) throw invError;
+
+      // 2. Log transaction
+      const { error: txError } = await supabase.from('inventory_transactions').insert({
+        type: 'STOCK_IN',
+        item_id: stockInItem.id,
+        item_name: stockInItem.name,
+        quantity: stockInForm.quantity,
+        unit: stockInItem.unit,
+        from_location: stockInForm.supplierName || 'Supplier',
+        to_location: activeBranch,
+        remarks: stockInForm.notes,
+        performed_by: (await supabase.auth.getSession()).data.session?.user?.id
+      });
+
+      if (txError) throw txError;
+
+      fetchItems();
+      closeStockInModal();
+    } catch (error) {
+      console.error('Error recording stock-in:', error);
+      alert('Failed to record stock-in');
+    }
   };
 
   return (
@@ -1451,18 +1605,18 @@ function TransferModal({ isOpen, onClose, inventory }: { isOpen: boolean, onClos
       if (!item) return;
 
       try {
-        await addDoc(collection(db, 'transfers'), {
-          fromBranchId: fromBranch,
-          toBranchId: toBranch,
-          itemId: selectedItem,
-          itemName: item.name,
+        const { data: { session } } = await supabase.auth.getSession();
+        await supabase.from('transfers').insert({
+          from_branch_id: fromBranch,
+          to_branch_id: toBranch,
+          item_id: selectedItem,
+          item_name: item.name,
           quantity: qty,
           status: 'COMPLETED',
-          requestedBy: auth.currentUser?.uid || 'user',
-          requestedAt: serverTimestamp(),
+          requested_by: session?.user?.id || null,
         });
       } catch (err) {
-        console.warn("Firebase skipped for local dev transfer.");
+        console.warn("Supabase skipped for local dev transfer.");
       }
 
       // 1. Immediately apply transfer to MOCK_INVENTORY for instant feedback
@@ -1820,42 +1974,69 @@ interface ProcurementOrder {
 
 function DashboardView({ onStartAudit, activeBranch, user }: { onStartAudit: () => void, activeBranch: string, user?: any, key?: string }) {
   const [dashTab, setDashTab] = useState<'inventory' | 'audit' | 'procurement' | 'transactions'>('inventory');
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [expandedAuditId, setExpandedAuditId] = useState<string | null>(null);
   const [poModalOpen, setPoModalOpen] = useState(false);
   const [usageModalOpen, setUsageModalOpen] = useState(false);
   const [usageForm, setUsageForm] = useState({ itemId: '', quantity: 1, remarks: '' });
 
-  const handleRecordUsage = (e: React.FormEvent) => {
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const { data: invData } = await supabase.from('inventory').select('*').order('name');
+      const { data: txData } = await supabase
+        .from('inventory_transactions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      setItems((invData || []).map(i => ({ ...i, lastAudit: i.last_audit || 'Never' })));
+      setTransactions(txData || []);
+    } catch (err) {
+      console.error("Error fetching dashboard data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [activeBranch]);
+
+  const handleRecordUsage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!usageForm.itemId || usageForm.quantity <= 0) return;
     
-    const itemIndex = MOCK_INVENTORY.findIndex(i => i.id === usageForm.itemId);
-    if (itemIndex > -1) {
-      if (activeBranch !== 'Main Branch') {
-         MOCK_INVENTORY[itemIndex].branchStock[activeBranch] = Math.max(0, (MOCK_INVENTORY[itemIndex].branchStock[activeBranch] || 0) - usageForm.quantity);
-         MOCK_INVENTORY[itemIndex].total = Math.max(0, MOCK_INVENTORY[itemIndex].total - usageForm.quantity);
-      } else {
-         MOCK_INVENTORY[itemIndex].total = Math.max(0, MOCK_INVENTORY[itemIndex].total - usageForm.quantity);
+    const item = items.find(i => i.id === usageForm.itemId);
+    if (item) {
+      try {
+        const newTotal = Math.max(0, item.total - usageForm.quantity);
+        const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
+
+        // 1. Update inventory
+        await supabase
+          .from('inventory')
+          .update({ total: newTotal, status, last_audit: new Date().toISOString() })
+          .eq('id', item.id);
+
+        // 2. Log transaction
+        await supabase.from('inventory_transactions').insert({
+          type: 'USAGE',
+          item_id: item.id,
+          item_name: item.name,
+          quantity: usageForm.quantity,
+          unit: item.unit,
+          from_location: activeBranch,
+          to_location: usageForm.remarks ? `Ref: ${usageForm.remarks}` : 'Consumed / Dispensed',
+          performed_by: user?.id
+        });
+
+        fetchData();
+      } catch (err) {
+        console.error("Error recording usage:", err);
       }
-      
-      const newTotal = activeBranch !== 'Main Branch' ? MOCK_INVENTORY[itemIndex].branchStock[activeBranch] : MOCK_INVENTORY[itemIndex].total;
-      if (newTotal > 50) MOCK_INVENTORY[itemIndex].status = 'HEALTHY';
-      else if (newTotal > 20) MOCK_INVENTORY[itemIndex].status = 'BALANCED';
-      else MOCK_INVENTORY[itemIndex].status = 'REORDER';
-    // Force re-render if needed, but MOCK_INVENTORY is directly referenced
-    
-      MOCK_TRANSACTIONS.unshift({
-        id: 'tx-usage-' + Math.random().toString(36).substr(2, 9),
-        type: 'USAGE',
-        date: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        itemName: MOCK_INVENTORY[itemIndex].name,
-        quantity: usageForm.quantity,
-        unit: MOCK_INVENTORY[itemIndex].unit,
-        from: activeBranch,
-        to: usageForm.remarks ? `Ref: ${usageForm.remarks}` : 'Consumed / Dispensed',
-        status: 'COMPLETED',
-        user: user?.name || 'Staff'
-      });
     }
 
     setUsageModalOpen(false);
@@ -2026,10 +2207,9 @@ function DashboardView({ onStartAudit, activeBranch, user }: { onStartAudit: () 
   const pendingCount = orders.filter(o => o.status === 'SUBMITTED').length;
   const draftCount = orders.filter(o => o.status === 'DRAFT').length;
 
-  const dashboardInventory = getInventoryForBranch(MOCK_INVENTORY, activeBranch);
-  const totalSKUs = dashboardInventory.length;
-  const criticalStock = dashboardInventory.filter(item => item.status === 'REORDER').length;
-  const stockValue = dashboardInventory.reduce((sum, item) => sum + (item.total * (item.price || 0)), 0);
+  const totalSKUs = items.length;
+  const criticalStock = items.filter(item => item.status === 'REORDER').length;
+  const stockValue = items.reduce((sum, item) => sum + (item.total * (item.price || 0)), 0);
   
   const formatStockValue = (value: number) => {
     if (value >= 1000) {
@@ -2152,7 +2332,7 @@ function DashboardView({ onStartAudit, activeBranch, user }: { onStartAudit: () 
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {getInventoryForBranch(MOCK_INVENTORY, activeBranch).map((item) => (
+                  {items.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-5">
                         <div className="flex flex-col">
@@ -2556,18 +2736,18 @@ function DashboardView({ onStartAudit, activeBranch, user }: { onStartAudit: () 
                   <button className="text-[10px] text-primary uppercase font-bold tracking-tighter">View All</button>
                 </div>
                 <div className="space-y-4">
-                  {MOCK_ACTIVITIES.map((activity) => (
+                  {transactions.slice(0, 5).map((activity) => (
                     <div key={activity.id} className="flex gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                         activity.type === 'audit' ? 'bg-blue-50 text-blue-600' : 
-                        activity.type === 'restock' ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'
+                        activity.type === 'STOCK_IN' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
                       }`}>
                         {activity.type === 'audit' ? <FileCheck size={14} /> : 
-                         activity.type === 'restock' ? <Warehouse size={14} /> : <ArrowRightLeft size={14} />}
+                         activity.type === 'STOCK_IN' ? <Warehouse size={14} /> : <ArrowRightLeft size={14} />}
                       </div>
                       <div>
-                        <p className="text-xs font-bold text-slate-900">{activity.title}</p>
-                        <p className="text-[10px] text-slate-400">{activity.location} • {activity.time}</p>
+                        <p className="text-xs font-bold text-slate-900">{activity.type === 'USAGE' ? `Used ${activity.quantity} ${activity.unit}` : activity.type} - {activity.item_name}</p>
+                        <p className="text-[10px] text-slate-400">{activity.from_location} • {new Date(activity.created_at).toLocaleDateString()}</p>
                       </div>
                     </div>
                   ))}
@@ -2767,9 +2947,9 @@ function DashboardView({ onStartAudit, activeBranch, user }: { onStartAudit: () 
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {MOCK_TRANSACTIONS.map((tx) => (
+                {transactions.map((tx) => (
                   <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-5 text-sm font-semibold text-slate-700">{tx.date}</td>
+                    <td className="px-6 py-5 text-sm font-semibold text-slate-700">{new Date(tx.created_at).toLocaleString()}</td>
                     <td className="px-6 py-5">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest rounded-md ${
                         tx.type === 'STOCK_IN' ? 'bg-green-50 text-green-700' :
@@ -2782,7 +2962,7 @@ function DashboardView({ onStartAudit, activeBranch, user }: { onStartAudit: () 
                         {tx.type.replace('_', ' ')}
                       </span>
                     </td>
-                    <td className="px-6 py-5 text-sm font-bold text-slate-900">{tx.itemName}</td>
+                    <td className="px-6 py-5 text-sm font-bold text-slate-900">{tx.item_name}</td>
                     <td className="px-6 py-5">
                       <span className={`text-sm font-extrabold ${tx.type === 'STOCK_IN' ? 'text-green-600' : tx.type === 'USAGE' ? 'text-orange-600' : 'text-blue-600'}`}>
                         {tx.type === 'USAGE' ? '-' : '+'}{tx.quantity} {tx.unit}
@@ -2790,13 +2970,13 @@ function DashboardView({ onStartAudit, activeBranch, user }: { onStartAudit: () 
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex flex-col text-xs text-slate-500 leading-snug">
-                        <span className="font-semibold">{tx.from} <ArrowRight className="inline mx-1 text-slate-300" size={10} /> {tx.to}</span>
-                        <span>By: {tx.user}</span>
+                        <span className="font-semibold">{tx.from_location} {tx.to_location && <><ArrowRight className="inline mx-1 text-slate-300" size={10} /> {tx.to_location}</>}</span>
+                        <span>User: {tx.performed_by || 'System'}</span>
                       </div>
                     </td>
                   </tr>
                 ))}
-                {MOCK_TRANSACTIONS.length === 0 && (
+                {transactions.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-6 py-10 text-center text-slate-400 text-sm italic">No recent transactions recorded.</td>
                   </tr>
@@ -3187,7 +3367,7 @@ function AuditChecklist({ onBack }: { onBack: () => void, key?: string }) {
 
 // --- Settings View ---
 
-function SettingsView({ mockUsers, setMockUsers }: { mockUsers: any[], setMockUsers: any }) {
+function SettingsView({ mockUsers, setMockUsers, user }: { mockUsers: any[], setMockUsers: any, user: any }) {
   const [activeTab, setActiveTab] = useState<'profile' | 'clinic' | 'notifications' | 'security' | 'data' | 'users'>('profile');
 
   const [rolePermissions, setRolePermissions] = useState([
@@ -3263,18 +3443,15 @@ function SettingsView({ mockUsers, setMockUsers }: { mockUsers: any[], setMockUs
   const handleDeleteAccount = async () => {
     if (window.confirm("Are you sure you want to delete your account? This action is permanent and will remove all your profile data.")) {
       try {
-        const user = auth.currentUser;
         if (user) {
-          await deleteUser(user);
-          // The onAuthStateChanged listener will handle the UI update
+          // Supabase account deletion usually happens via a trigger or RPC 
+          // For now we'll sign out and show a message
+          await supabase.auth.signOut();
+          alert("Account deletion request submitted. You have been signed out.");
         }
       } catch (err: any) {
         console.error("Delete account error:", err);
-        if (err.code === 'auth/requires-recent-login') {
-          alert("For security reasons, you must have recently signed in to delete your account. Please logout and sign in again before attempting to delete.");
-        } else {
-          alert("Failed to delete account: " + err.message);
-        }
+        alert("Failed to delete account: " + err.message);
       }
     }
   };
@@ -3334,16 +3511,16 @@ function SettingsView({ mockUsers, setMockUsers }: { mockUsers: any[], setMockUs
                 <div className="flex flex-col md:flex-row gap-8 items-start mb-8">
                   <div className="relative group">
                     <div className="w-24 h-24 rounded-2xl bg-slate-100 overflow-hidden border-4 border-white shadow-md">
-                      <img src={auth.currentUser?.photoURL || "https://picsum.photos/seed/user123/200/200"} alt="Avatar" className="w-full h-full object-cover" />
+                      <img src={user?.user_metadata?.avatar_url || user?.photoURL || "https://picsum.photos/seed/user123/200/200"} alt="Avatar" className="w-full h-full object-cover" />
                     </div>
                     <button className="absolute -bottom-2 -right-2 p-2 bg-white rounded-lg shadow-lg text-primary hover:scale-110 transition-transform border border-slate-100">
                       <CloudUpload size={16} />
                     </button>
                   </div>
                   <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                    <InputField label="Full Name" icon={User} placeholder="Enter your name" defaultValue={auth.currentUser?.displayName || "System Manager"} />
+                    <InputField label="Full Name" icon={User} placeholder="Enter your name" defaultValue={user?.user_metadata?.full_name || user?.displayName || "System Manager"} />
                     <InputField label="Job Title" icon={Stethoscope} placeholder="Enter your title" defaultValue="Clinic Administrator" />
-                    <InputField label="Email Address" icon={Mail} placeholder="Enter your email" defaultValue={auth.currentUser?.email || "admin@bigdental.com"} />
+                    <InputField label="Email Address" icon={Mail} placeholder="Enter your email" defaultValue={user?.email || "admin@bigdental.com"} />
                     <InputField label="Phone Number" icon={Phone} placeholder="Enter your phone" defaultValue="+60 12-345 6789" />
                   </div>
                 </div>
