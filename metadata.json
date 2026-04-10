@@ -1,0 +1,5 @@
+{
+  "name": "Big Inventory",
+  "description": "A professional medical inventory management and stock audit system for dental clinics with Google authentication, user profile management, and multi-branch stock transfer requests.",
+  "requestFramePermissions": []
+}

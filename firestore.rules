@@ -1,0 +1,164 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - displayName: string (required)
+    //   - email: string (required, email format)
+    //   - photoURL: string (optional, uri format)
+    //   - role: string (required, ['admin', 'user'])
+    //   - createdAt: timestamp (optional)
+    //
+    // Collection: inventory
+    // Document ID: {itemId}
+    // Fields:
+    //   - name: string (required)
+    //   - category: string (required)
+    //   - sku: string (required)
+    //   - total: number (required)
+    //   - status: string (required, ['REORDER', 'HEALTHY', 'BALANCED'])
+    //   - subtext: string (optional)
+    //   - unit: string (optional)
+    //   - lastAudit: timestamp (optional)
+    //
+    // Collection: branches
+    // Document ID: {branchId}
+    // Fields:
+    //   - name: string (required)
+    //   - location: string (required)
+    //   - manager: string (optional)
+    //
+    // Collection: branches/{branchId}/inventory
+    // Document ID: {itemId}
+    // Fields:
+    //   - branchId: string (required)
+    //   - itemId: string (required)
+    //   - quantity: number (required)
+    //
+    // Collection: transfers
+    // Document ID: {transferId}
+    // Fields:
+    //   - fromBranchId: string (required)
+    //   - toBranchId: string (required)
+    //   - itemId: string (required)
+    //   - quantity: number (required)
+    //   - status: string (required, ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED'])
+    //   - requestedBy: string (required)
+    //   - requestedAt: timestamp (required)
+    //   - processedBy: string (optional)
+    //   - processedAt: timestamp (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isUserAdmin() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isDefaultAdmin() {
+      return isAuthenticated() && request.auth.token.email == "jiayingjean@gmail.com";
+    }
+
+    function isAnyAdmin() {
+      return isDefaultAdmin() || isUserAdmin();
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['displayName', 'email', 'role']) &&
+             data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 100 &&
+             isValidEmail(data.email) &&
+             data.role in ['admin', 'user'];
+    }
+
+    function isValidInventoryItem(data) {
+      return data.keys().hasAll(['name', 'category', 'sku', 'total', 'status']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 200 &&
+             data.category is string &&
+             data.sku is string &&
+             data.total is number &&
+             data.status in ['REORDER', 'HEALTHY', 'BALANCED'];
+    }
+
+    function isValidBranch(data) {
+      return data.keys().hasAll(['name', 'location']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.location is string && data.location.size() > 0;
+    }
+
+    function isValidBranchInventory(data) {
+      return data.keys().hasAll(['branchId', 'itemId', 'quantity']) &&
+             data.branchId is string &&
+             data.itemId is string &&
+             data.quantity is number;
+    }
+
+    function isValidTransfer(data) {
+      return data.keys().hasAll(['fromBranchId', 'toBranchId', 'itemId', 'itemName', 'quantity', 'status', 'requestedBy', 'requestedAt']) &&
+             data.fromBranchId is string &&
+             data.toBranchId is string &&
+             data.itemId is string &&
+             data.itemName is string &&
+             data.quantity is number && data.quantity > 0 &&
+             data.status in ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED'] &&
+             data.requestedBy == request.auth.uid;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAnyAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && 
+                    (request.resource.data.role == 'user' || (request.resource.data.role == 'admin' && isDefaultAdmin()));
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) || isAnyAdmin();
+      allow delete: if isOwner(userId) || isAnyAdmin();
+    }
+
+    match /inventory/{itemId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAnyAdmin() && isValidInventoryItem(request.resource.data);
+      allow delete: if isAnyAdmin();
+    }
+
+    match /branches/{branchId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAnyAdmin() && isValidBranch(request.resource.data);
+      allow delete: if isAnyAdmin();
+
+      match /inventory/{itemId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isAnyAdmin() && isValidBranchInventory(request.resource.data);
+        allow delete: if isAnyAdmin();
+      }
+    }
+
+    match /transfers/{transferId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidTransfer(request.resource.data);
+      allow update: if isAnyAdmin() || (isAuthenticated() && request.auth.uid == resource.data.requestedBy && request.resource.data.status == 'REJECTED'); // Simplified for now
+      allow delete: if isAnyAdmin();
+    }
+  }
+}
