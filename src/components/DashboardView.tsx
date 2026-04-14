@@ -22,17 +22,42 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const [usageModalOpen, setUsageModalOpen] = useState(false);
   const [usageForm, setUsageForm] = useState({ itemId: '', quantity: 1, remarks: '' });
   const [auditLogs, setAuditLogs] = useState<(AuditLog & { mismatchedItems?: any[] })[]>([]);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [allBranches, setAllBranches] = useState<any[]>([]);
+  const [viewType, setViewType] = useState<'consolidated' | 'branch'>('branch');
+  const [branchInventory, setBranchInventory] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    // Default to consolidated if 'Main Branch' is selected AND user is Admin/Manager, otherwise 'branch'
+    if (activeBranch === 'Main Branch' && (user?.role === 'Admin' || user?.role === 'Branch Manager')) {
+      setViewType('consolidated');
+    } else {
+      setViewType('branch');
+    }
+  }, [activeBranch, user?.role]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [invResult, txResult, auditResult, poResult, supplierResult] = await Promise.all([
-        supabase.from('inventory').select('*').order('name'),
+      const [invResult, txResult, auditResult, poResult, supplierResult, branchResult, branchInvResult] = await Promise.all([
+        supabase.from('inventory').select('*').order('name').limit(5000),
         supabase.from('inventory_transactions').select('*').order('created_at', { ascending: false }).limit(20),
         supabase.from('audit_logs').select('*, audit_mismatches(*)').order('created_at', { ascending: false }),
         supabase.from('procurement_orders').select('*, procurement_order_items(*)').order('created_at', { ascending: false }),
-        supabase.from('suppliers').select('name').order('name')
+        supabase.from('suppliers').select('name').order('name'),
+        supabase.from('branches').select('*').order('name'),
+        supabase.from('branch_inventory').select('item_id, quantity').eq('branch_id', activeBranch)
       ]);
+
+      setAllBranches(branchResult.data || []);
+      
+      // Map branch inventory to a lookup object
+      const binv: Record<string, number> = {};
+      (branchInvResult.data || []).forEach((row: any) => {
+        binv[row.item_id] = row.quantity;
+      });
+      setBranchInventory(binv);
 
       setItems((invResult.data || []).map(i => ({ ...i, lastAudit: i.last_audit || 'Never' })));
       setTransactions(txResult.data || []);
@@ -46,8 +71,18 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         auditorAvatar: log.auditor_avatar || '',
         itemsChecked: log.items_checked,
         status: log.status,
+        approvalStatus: log.approval_status,
+        approvedByName: log.approved_by_name,
+        approvedAt: log.approved_at,
         isRecent: log.is_recent,
-        mismatchedItems: log.audit_mismatches?.length > 0 ? log.audit_mismatches : undefined
+        mismatchedItems: log.audit_mismatches?.length > 0 ? log.audit_mismatches.map((m: any) => ({
+          id: m.item_id,
+          name: m.name,
+          sku: m.sku,
+          expected: m.expected,
+          actual: m.actual,
+          remark: m.remark
+        })) : undefined
       })));
 
       // Map procurement orders
@@ -64,6 +99,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         })),
         totalCost: Number(po.total_cost),
         status: po.status,
+        branchId: po.branch_id,
         expectedDelivery: po.expected_delivery || '',
         notes: po.notes || '',
         createdAt: new Date(po.created_at).toLocaleDateString('en-MY', { year: 'numeric', month: 'short', day: 'numeric' }),
@@ -108,7 +144,8 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
           quantity: usageForm.quantity,
           unit: item.unit,
           from_location: activeBranch,
-          to_location: usageForm.remarks ? `Ref: ${usageForm.remarks}` : 'Consumed / Dispensed',
+          to_location: 'Consumed / Dispensed',
+          remarks: usageForm.remarks,
           performed_by: user?.id
         });
 
@@ -169,6 +206,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       } else {
         const { data: newPO, error } = await supabase.from('procurement_orders').insert({
           po_number: nextPoNumber,
+          branch_id: activeBranch !== 'Main Branch' ? activeBranch : 'Kepong', // Default to Kepong for HQ orders
           supplier: poFormSupplier,
           total_cost: totalCost,
           status: 'DRAFT',
@@ -278,6 +316,57 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
     }
   };
 
+  const handleApproveAudit = async (log: AuditLog) => {
+    if (!window.confirm('Approve this audit and update system stock?')) return;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const approverName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Admin';
+
+      // 1. Update inventory for each mismatch
+      if (log.mismatchedItems && log.mismatchedItems.length > 0) {
+        for (const item of log.mismatchedItems) {
+          if (item.id) {
+            const newTotal = item.actual;
+            const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
+            
+            await supabase.from('inventory').update({ 
+              total: newTotal, 
+              status, 
+              last_audit: new Date().toISOString() 
+            }).eq('id', item.id);
+
+            // Record adjustment transaction
+            await supabase.from('inventory_transactions').insert({
+              type: 'ADJUSTMENT',
+              item_id: item.id,
+              item_name: item.name,
+              quantity: item.actual - item.expected,
+              unit: 'Units',
+              from_location: 'Stock Audit',
+              to_location: log.branch,
+              remarks: `Direct adjustment from audit approval by ${approverName}`,
+              performed_by: session?.user?.id
+            });
+          }
+        }
+      }
+
+      // 2. Update audit log status
+      await supabase.from('audit_logs').update({
+        approval_status: 'APPROVED',
+        approved_by_name: approverName,
+        approved_at: new Date().toISOString()
+      }).eq('id', log.id);
+
+      alert('Audit approved and system stock updated!');
+      fetchData();
+    } catch (err) {
+      console.error('Error approving audit:', err);
+      alert('Failed to approve audit');
+    }
+  };
+
   const prefillFromItem = (item: InventoryItem) => {
     setPoFormLines([{ itemName: item.name, sku: item.sku, quantity: 0, unit: item.unit, unitPrice: item.price || 0 }]);
     setPoModalOpen(true);
@@ -307,8 +396,53 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const draftCount = orders.filter(o => o.status === 'DRAFT').length;
 
   const totalSKUs = items.length;
-  const criticalStock = items.filter(item => item.status === 'REORDER').length;
-  const stockValue = items.reduce((sum, item) => sum + (item.total * (item.price || 0)), 0);
+  const criticalStock = items.filter(item => {
+    const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id] || 0);
+    return qty < (item.min_stock || 20);
+  }).length;
+  const stockValue = items.reduce((sum, item) => {
+    const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id] || 0);
+    return sum + (qty * (item.price || 0));
+  }, 0);
+
+  const handleEditItem = (item: InventoryItem) => {
+    setEditingItem({ ...item });
+    setEditModalOpen(true);
+  };
+
+  const handleSaveItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+
+    try {
+      const alertLevel = editingItem.min_stock || 20;
+      const currentQty = editingItem.total;
+      const calcStatus = currentQty < alertLevel ? 'REORDER' : (currentQty < alertLevel * 2 ? 'BALANCED' : 'HEALTHY');
+
+      const { error } = await supabase
+        .from('inventory')
+        .update({
+          name: editingItem.name,
+          sku: editingItem.sku,
+          category: editingItem.category,
+          subtext: editingItem.subtext,
+          unit: editingItem.unit,
+          price: editingItem.price,
+          min_stock: alertLevel,
+          status: calcStatus
+        })
+        .eq('id', editingItem.id);
+
+      if (error) throw error;
+
+      alert('Item updated successfully!');
+      setEditModalOpen(false);
+      fetchData();
+    } catch (err) {
+      console.error('Error updating item:', err);
+      alert('Failed to update item');
+    }
+  };
 
   const formatStockValue = (value: number) => {
     if (value >= 1000) {
@@ -332,10 +466,22 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
           <p className="text-slate-500 font-inter text-sm mt-1">{activeBranch === 'Main Branch' ? 'Consolidated stock across all branches.' : `Viewing stock levels for ${activeBranch} branch.`}</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center bg-surface-container-low p-1 rounded-lg">
-            <button className="px-4 py-2 bg-white shadow-sm rounded-md text-xs font-bold text-primary">Consolidated</button>
-            <button className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-primary transition-colors">By Branch</button>
-          </div>
+          {(user?.role === 'Admin' || user?.role === 'Branch Manager') && (
+            <div className="flex items-center bg-surface-container-low p-1 rounded-lg">
+              <button 
+                onClick={() => setViewType('consolidated')}
+                className={`px-4 py-2 rounded-md text-xs font-bold transition-all ${viewType === 'consolidated' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-primary'}`}
+              >
+                Consolidated
+              </button>
+              <button 
+                onClick={() => setViewType('branch')}
+                className={`px-4 py-2 rounded-md text-xs font-bold transition-all ${viewType === 'branch' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-primary'}`}
+              >
+                By Branch
+              </button>
+            </div>
+          )}
           <button
             onClick={() => setUsageModalOpen(true)}
             className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-teal-500 to-emerald-500 text-white text-sm font-bold shadow-lg hover:opacity-90 transition-all rounded-md active:scale-95"
@@ -441,7 +587,11 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                         <span className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded">{item.category}</span>
                       </td>
                       <td className="px-6 py-5 text-xs font-mono text-slate-400">{item.sku}</td>
-                      <td className={`px-6 py-5 text-sm font-bold ${item.status === 'REORDER' ? 'text-tertiary' : 'text-slate-900'}`}>{item.total}</td>
+                      <td className={`px-6 py-5 text-sm font-bold ${
+                        (viewType === 'consolidated' ? item.total : (branchInventory[item.id] || 0)) < (item.min_stock || 20) ? 'text-tertiary' : 'text-slate-900'
+                      }`}>
+                        {viewType === 'consolidated' ? item.total.toLocaleString() : (branchInventory[item.id] || 0).toLocaleString()}
+                      </td>
                       <td className="px-6 py-5 text-xs font-medium text-slate-500">{item.lastAudit}</td>
                       <td className="px-6 py-5">
                         <StatusBadge status={item.status} />
@@ -449,7 +599,10 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                       {user?.role === 'Admin' && (
                         <td className="px-6 py-5">
                           <div className="flex items-center gap-2">
-                            <button className="text-primary hover:text-primary-container transition-colors">
+                            <button 
+                              onClick={() => handleEditItem(item)}
+                              className="text-primary hover:text-primary-container transition-colors"
+                            >
                               <Edit3 size={18} />
                             </button>
                             {item.status === 'REORDER' && (
@@ -470,14 +623,9 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                 </tbody>
               </table>
             </div>
-            <div className="px-6 py-4 flex items-center justify-between border-t border-slate-50">
-              <span className="text-xs text-slate-400">Showing 1 to 3 of 1,284 entries</span>
-              <div className="flex gap-1">
-                <button className="w-8 h-8 flex items-center justify-center rounded bg-slate-100 text-slate-400 hover:bg-slate-200 transition-colors"><ChevronLeft size={14} /></button>
-                <button className="w-8 h-8 flex items-center justify-center rounded bg-primary text-white text-xs font-bold">1</button>
-                <button className="w-8 h-8 flex items-center justify-center rounded bg-slate-100 text-slate-400 hover:bg-slate-200 transition-colors text-xs font-bold">2</button>
-                <button className="w-8 h-8 flex items-center justify-center rounded bg-slate-100 text-slate-400 hover:bg-slate-200 transition-colors"><ChevronRight size={14} /></button>
-              </div>
+            <div className="px-6 py-4 flex items-center justify-between border-t border-slate-50 bg-slate-50/20">
+              <span className="text-xs text-slate-500 font-bold">Showing all {items.length.toLocaleString()} entries</span>
+              <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Scroll to see more</span>
             </div>
           </div>
         </>
@@ -528,6 +676,11 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-3">
                           <StatusBadge status={log.status} />
+                          {log.approvalStatus === 'PENDING' ? (
+                            <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-bold rounded-full border border-amber-100 uppercase tracking-tighter">Pending Approval</span>
+                          ) : (
+                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-bold rounded-full border border-emerald-100 uppercase tracking-tighter">Approved</span>
+                          )}
                           {log.mismatchedItems && (
                             <button className="text-slate-400 hover:text-primary transition-colors flex shrink-0">
                               {expandedAuditId === log.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -581,6 +734,27 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                                   </div>
                                 );
                               })}
+                            <div className="mt-4 flex items-center justify-between pt-4 border-t border-slate-100">
+                                <div className="text-[10px] text-slate-400">
+                                  {log.approvalStatus === 'APPROVED' ? (
+                                    <p className="flex items-center gap-1 text-emerald-600 font-bold">
+                                      <CheckCircle2 size={12} />
+                                      Approved by {log.approvedByName} on {new Date(log.approvedAt!).toLocaleDateString('en-MY')}
+                                    </p>
+                                  ) : (
+                                    <p>Awaiting management review and system sync.</p>
+                                  )}
+                                </div>
+                                {(user?.role === 'Admin' || user?.role === 'Branch Manager') && log.approvalStatus === 'PENDING' && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleApproveAudit(log); }}
+                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-md hover:bg-emerald-600 transition-all active:scale-95"
+                                  >
+                                    <CheckCircle2 size={14} />
+                                    Approve & Update Stock
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -1077,6 +1251,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
           </div>
         </div>
       )}
+
       </AnimatePresence>
 
       {/* ==================== PRINT PO MODAL ==================== */}
@@ -1110,9 +1285,24 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                         <p className="text-primary font-mono font-bold text-lg mt-1">{o.poNumber}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-bold text-slate-900">BIG DENTAL CLINIC</p>
-                        <p className="text-[10px] text-slate-500 mt-0.5">123, Jalan Dental, 43000 Kajang</p>
-                        <p className="text-[10px] text-slate-500">Selangor, Malaysia</p>
+                        {(() => {
+                          const branch = allBranches.find(b => b.id === o.branchId);
+                          return (
+                            <>
+                              <p className="text-sm font-bold text-slate-900">{branch?.name || 'BIG DENTAL CLINIC'}</p>
+                              {branch?.address ? (
+                                branch.address.split(',').map((line, i) => (
+                                  <p key={i} className="text-[10px] text-slate-500 mt-0.5">{line.trim()}</p>
+                                ))
+                              ) : (
+                                <>
+                                  <p className="text-[10px] text-slate-500 mt-0.5">123, Jalan Dental, 43000 Kajang</p>
+                                  <p className="text-[10px] text-slate-500">Selangor, Malaysia</p>
+                                </>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-8 mb-8 p-4 bg-slate-50 rounded-xl print:bg-transparent print:p-0">
@@ -1186,6 +1376,64 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
             </motion.div>
           </div>
         )}
+      {/* ==================== SETTINGS TAB ==================== */}
+      {dashTab === 'settings' && (
+        <div className="mb-10 max-w-4xl">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-xl font-manrope font-bold text-slate-900">System Settings</h3>
+              <p className="text-xs text-slate-500">Manage branch locations and clinical addresses for POs.</p>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <h4 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+                <Warehouse size={16} className="text-primary" /> Branch & Address Management
+              </h4>
+              <div className="grid grid-cols-1 gap-4">
+                {allBranches.map((branch) => (
+                  <div key={branch.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col md:flex-row gap-4 items-start md:items-center">
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-slate-900 mb-1">{branch.name}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">{branch.id}</p>
+                    </div>
+                    <div className="flex-[3]">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">Full Mailing Address (Separate lines by comma)</label>
+                      <input 
+                        type="text" 
+                        defaultValue={branch.address || ''} 
+                        onBlur={async (e) => {
+                          if (e.target.value !== branch.address) {
+                            try {
+                              const { error } = await supabase.from('branches').update({ address: e.target.value }).eq('id', branch.id);
+                              if (error) throw error;
+                              alert(`${branch.name} address updated!`);
+                              fetchData();
+                            } catch (err) {
+                              console.error(err);
+                              alert('Failed to update address');
+                            }
+                          }
+                        }}
+                        className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-primary/20 outline-none" 
+                        placeholder="e.g. 123, Jalan Dental, 43000 Kajang, Selangor"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 opacity-60">
+              <h4 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+                <Package size={16} /> Other Preferences
+              </h4>
+              <p className="text-xs text-slate-500 italic">More settings coming soon...</p>
+            </div>
+          </div>
+        </div>
+      )}
       </AnimatePresence>
 
       {/* ==================== RECORD USAGE MODAL ==================== */}
@@ -1249,6 +1497,108 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                 <div className="pt-2 flex gap-3">
                   <button type="button" onClick={() => setUsageModalOpen(false)} className="flex-1 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all text-sm shadow-sm">Cancel</button>
                   <button type="submit" className="flex-1 py-3 bg-teal-600 text-white font-bold rounded-xl shadow-lg shadow-teal-500/30 hover:opacity-90 transition-all text-sm">Save Usage</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ==================== EDIT ITEM MODAL ==================== */}
+      <AnimatePresence>
+        {editModalOpen && editingItem && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setEditModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-primary/5">
+                <h3 className="text-sm font-bold text-primary flex items-center gap-2"><Edit3 size={16} /> Edit Item Details</h3>
+                <button type="button" onClick={() => setEditModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-lg"><Plus size={16} className="rotate-45" /></button>
+              </div>
+              <form onSubmit={handleSaveItem} className="p-6 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Item Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingItem.name}
+                      onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary/20 outline-none"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Description / Subtext</label>
+                    <input
+                      type="text"
+                      value={editingItem.subtext}
+                      onChange={(e) => setEditingItem({ ...editingItem, subtext: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary/20 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">SKU Code</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingItem.sku}
+                      onChange={(e) => setEditingItem({ ...editingItem, sku: e.target.value.toUpperCase() })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono font-bold focus:ring-2 focus:ring-primary/20 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Category</label>
+                    <select
+                      value={editingItem.category}
+                      onChange={(e) => setEditingItem({ ...editingItem, category: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary/20 outline-none"
+                    >
+                      <option>Surgery</option>
+                      <option>Consumables</option>
+                      <option>Prosthetics</option>
+                      <option>Instruments</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Unit of Measure</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingItem.unit}
+                      onChange={(e) => setEditingItem({ ...editingItem, unit: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary/20 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Unit Price (RM)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editingItem.price || 0}
+                      onChange={(e) => setEditingItem({ ...editingItem, price: parseFloat(e.target.value) || 0 })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Min. Stock Level (Alert Point)</label>
+                    <input
+                      type="number"
+                      value={editingItem.min_stock || 20}
+                      onChange={(e) => setEditingItem({ ...editingItem, min_stock: parseInt(e.target.value) || 0 })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-primary/20 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                  <button type="button" onClick={() => setEditModalOpen(false)} className="flex-1 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all text-sm">Cancel</button>
+                  <button type="submit" className="flex-1 py-3 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/30 hover:opacity-90 transition-all text-sm">Save Changes</button>
                 </div>
               </form>
             </motion.div>

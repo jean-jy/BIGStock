@@ -4,10 +4,10 @@
 -- ============================================================
 
 -- 1. BRANCHES
-insert into public.branches (id, name, location, manager) values
-  ('Kepong',    'Kepong Branch',    'Kepong Medical Center',    'Marcus Wong'),
-  ('Jadehills', 'Jadehills Branch', 'Jadehills Medical Center', 'Branch Manager'),
-  ('Puchong',   'Puchong Branch',   'Puchong Medical Center',   'Branch Manager')
+insert into public.branches (id, name, location, address, manager) values
+  ('Kepong',    'Kepong Branch',    'Kepong Medical Center',    '123, Jalan Kepong, 52100 KL', 'Marcus Wong'),
+  ('Jadehills', 'Jadehills Branch', 'Jadehills Medical Center', '45, Jade Hills, 43000 Kajang', 'Branch Manager'),
+  ('Puchong',   'Puchong Branch',   'Puchong Medical Center',   '88, Bandar Puteri, 47100 Puchong', 'Branch Manager')
 on conflict (id) do nothing;
 
 -- 2. INVENTORY (master items)

@@ -60,12 +60,13 @@ export function AuditChecklist({ onBack }: { onBack: () => void, key?: string })
       const auditorName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Unknown';
 
       // Determine mismatches
-      const mismatches: { name: string; sku: string; expected: number; actual: number; remark?: string }[] = [];
+      const mismatches: { id: string; name: string; sku: string; expected: number; actual: number; remark?: string }[] = [];
       for (const item of auditItems) {
         if (counts[item.id] !== undefined && counts[item.id] !== '') {
           const actual = Number(counts[item.id]);
           if (actual !== item.system) {
             mismatches.push({
+              id: item.id,
               name: item.name,
               sku: item.sku,
               expected: item.system,
@@ -88,6 +89,7 @@ export function AuditChecklist({ onBack }: { onBack: () => void, key?: string })
           auditor_avatar: session?.user?.user_metadata?.avatar_url || '',
           items_checked: recordedCount,
           status,
+          approval_status: 'PENDING',
           is_recent: true
         })
         .select('id')
@@ -105,7 +107,7 @@ export function AuditChecklist({ onBack }: { onBack: () => void, key?: string })
       if (mismatches.length > 0) {
         const { error: mmError } = await supabase
           .from('audit_mismatches')
-          .insert(mismatches.map(m => ({ audit_log_id: auditLog.id, ...m })));
+          .insert(mismatches.map(m => ({ audit_log_id: auditLog.id, item_id: m.id, name: m.name, sku: m.sku, expected: m.expected, actual: m.actual, remark: m.remark })));
         if (mmError) throw mmError;
       }
 

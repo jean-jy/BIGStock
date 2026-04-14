@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Download, CheckCircle2, History } from 'lucide-react';
+import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpreadsheet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
 import type { InventoryItem } from '../types';
@@ -31,6 +31,7 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
     notes: string;
     date: string;
   }>>([]);
+  const [activeCategory, setActiveCategory] = useState('All');
 
   const [newItem, setNewItem] = useState({
     name: '',
@@ -39,8 +40,92 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
     sku: '',
     total: 0,
     unit: 'Units',
-    price: 0
+    price: 0,
+    min_stock: 20
   });
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleDownloadTemplate = () => {
+    const headers = ['item_name', 'subtext', 'category', 'sku', 'price', 'initial_quantity', 'unit', 'min_stock_alert'];
+    const row = ['"Dental Mirror #4"', '"Stainless Steel"', '"Instruments"', '"INS-MIR-04"', '45.00', '100', '"Units"', '20'];
+    const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + row.join(",");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "inventory_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result as string;
+      const lines = text.split('\n').filter(line => line.trim() !== '');
+      
+      // Skip header
+      const dataRows = lines.slice(1);
+      const itemsToInsert: any[] = [];
+      const newCats = new Set<string>(categories);
+
+      dataRows.forEach(row => {
+        // Simple CSV splitter (doesn't handle commas inside quotes perfectly, but okay for basics)
+        const cols = row.split(',').map(c => c.replace(/^"|"$/g, '').trim());
+        if (cols.length < 4) return; // Skip invalid rows
+
+        const [name, subtext, category, sku, price, qty, unit, minStock] = cols;
+        const currentQty = parseInt(qty) || 0;
+        const alertLevel = parseInt(minStock) || 20;
+
+        itemsToInsert.push({
+          name,
+          subtext: subtext || '',
+          category: category || 'General',
+          sku: sku || `SKU-${Math.random().toString(36).substr(2, 9)}`,
+          price: parseFloat(price) || 0,
+          total: currentQty,
+          unit: unit || 'Units',
+          min_stock: alertLevel,
+          status: currentQty < alertLevel ? 'REORDER' : (currentQty < alertLevel * 2 ? 'BALANCED' : 'HEALTHY'),
+          last_audit: new Date().toISOString()
+        });
+        if (category) newCats.add(category);
+      });
+
+      if (itemsToInsert.length === 0) {
+        alert("No valid items found in the CSV.");
+        return;
+      }
+
+      try {
+        setLoading(true);
+        // Using upsert with onConflict on 'sku' ensures we update existing items 
+        // and only insert new ones. Note: 'sku' must have a unique constraint in DB.
+        const { error: err } = await supabase
+          .from('inventory')
+          .upsert(itemsToInsert, { onConflict: 'sku' });
+
+        if (err) throw err;
+
+        alert(`Successfully processed ${itemsToInsert.length} items!`);
+        setCategories(Array.from(newCats));
+        fetchItems();
+      } catch (err: any) {
+        console.error("CSV Import Error:", err);
+        alert("Failed to import CSV: " + err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.readAsText(file);
+    // Reset input
+    e.target.value = '';
+  };
 
   const fetchItems = async () => {
     setLoading(true);
@@ -48,7 +133,8 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
       const { data, error } = await supabase
         .from('inventory')
         .select('*')
-        .order('name');
+        .order('name')
+        .limit(5000);
 
       if (error) throw error;
 
@@ -94,7 +180,8 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
 
   const handleCreateOrUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
-    const status = newItem.total < 20 ? 'REORDER' : 'HEALTHY';
+    const alertLevel = newItem.min_stock || 20;
+    const status = newItem.total < alertLevel ? 'REORDER' : (newItem.total < alertLevel * 2 ? 'BALANCED' : 'HEALTHY');
 
     try {
       if (editingItem) {
@@ -134,7 +221,8 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
       sku: item.sku,
       total: item.total,
       unit: item.unit,
-      price: item.price || 0
+      price: item.price || 0,
+      min_stock: item.min_stock || 20
     });
     setIsModalOpen(true);
   };
@@ -142,7 +230,7 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingItem(null);
-    setNewItem({ name: '', subtext: '', category: 'Surgery', sku: '', total: 0, unit: 'Units', price: 0 });
+    setNewItem({ name: '', subtext: '', category: 'Surgery', sku: '', total: 0, unit: 'Units', price: 0, min_stock: 20 });
   };
 
   const handleDeleteItem = async (id: string) => {
@@ -177,8 +265,9 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
     if (!stockInItem || stockInForm.quantity <= 0) return;
 
     try {
+      const alertLevel = stockInItem.min_stock || 20;
       const newTotal = stockInItem.total + stockInForm.quantity;
-      const status = newTotal < 20 ? 'REORDER' : 'HEALTHY';
+      const status = newTotal < alertLevel ? 'REORDER' : (newTotal < alertLevel * 2 ? 'BALANCED' : 'HEALTHY');
 
       const { error: invError } = await supabase
         .from('inventory')
@@ -226,21 +315,57 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
           <h1 className="text-4xl font-manrope font-extrabold text-slate-900 tracking-tight">Inventory Master</h1>
           <p className="text-slate-500 font-inter text-sm mt-1">{activeBranch === 'Main Branch' ? 'Consolidated view across all branches.' : `Showing stock levels for ${activeBranch} branch.`}</p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-bold shadow-lg hover:opacity-90 transition-all rounded-md active:scale-95"
-        >
-          <Plus size={18} />
-          Add New Item
-        </button>
+        <div className="flex items-center gap-3">
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleCsvImport} 
+            accept=".csv" 
+            className="hidden" 
+          />
+          <button
+            onClick={handleDownloadTemplate}
+            className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 text-slate-600 text-sm font-bold rounded-md hover:bg-white transition-all"
+            title="Download CSV Template"
+          >
+            <Download size={18} />
+            Template
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-primary text-sm font-bold shadow-sm hover:border-primary/30 transition-all rounded-md"
+          >
+            <Upload size={18} />
+            Bulk Import CSV
+          </button>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-bold shadow-lg hover:opacity-90 transition-all rounded-md active:scale-95"
+          >
+            <Plus size={18} />
+            Add New Item
+          </button>
+        </div>
       </div>
 
       {/* Category Filter Pills */}
       <div className="flex flex-wrap gap-2 mb-8 items-center">
-        <button className="px-4 py-2 bg-primary text-white text-xs font-bold rounded-full shadow-sm">All Items</button>
+        <button 
+          onClick={() => setActiveCategory('All')}
+          className={`px-4 py-2 text-xs font-bold rounded-full shadow-sm transition-all ${activeCategory === 'All' ? 'bg-primary text-white shadow-primary/20' : 'bg-white text-slate-500 border border-slate-100'}`}
+        >
+          All Items
+        </button>
         {categories.map(cat => (
           <div key={cat} className="group relative flex items-center">
-            <button className="px-4 py-2 bg-white text-slate-500 text-xs font-bold rounded-full border border-slate-100 hover:border-primary/20 hover:text-primary transition-all pr-8">
+            <button 
+              onClick={() => setActiveCategory(cat)}
+              className={`px-4 py-2 text-xs font-bold rounded-full border transition-all pr-8 ${
+                activeCategory === cat 
+                  ? 'bg-primary text-white border-primary shadow-sm shadow-primary/20' 
+                  : 'bg-white text-slate-500 border-slate-100 hover:border-primary/20 hover:text-primary'
+              }`}
+            >
               {cat}
             </button>
             <div className="absolute right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -304,7 +429,7 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {items.map((item) => (
+            {items.filter(i => activeCategory === 'All' || i.category === activeCategory).map((item) => (
               <tr key={item.id} className="hover:bg-slate-50/30 transition-colors group">
                 <td className="px-6 py-5">
                   <p className="text-sm font-bold text-slate-900">{item.name}</p>
@@ -449,6 +574,16 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
                       onChange={e => setNewItem({...newItem, price: parseFloat(e.target.value) || 0})}
                       className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/10 transition-all"
                       placeholder="e.g. 45.00"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Min. Stock Level (Alert Point)</label>
+                    <input
+                      type="number"
+                      required
+                      value={newItem.min_stock}
+                      onChange={e => setNewItem({...newItem, min_stock: parseInt(e.target.value) || 0})}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/10 transition-all"
                     />
                   </div>
                 </div>

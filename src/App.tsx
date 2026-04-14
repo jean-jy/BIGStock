@@ -62,13 +62,28 @@ export default function App() {
         .maybeSingle()
         .then(({ data: profile }) => {
           if (profile) {
-            setUser((prev: any) => prev ? {
-              ...prev,
-              displayName: profile.full_name || prev.displayName,
-              role: profile.role || prev.role,
-              assignedBranch: profile.assigned_branch || prev.assignedBranch,
-              photoURL: profile.avatar_url || prev.photoURL
-            } : prev);
+            const fullName = profile.full_name || '';
+            const match = fullName.match(/(.*) \[(.*)\]$/);
+            const displayName = match ? match[1] : (profile.full_name || prev.displayName);
+            const displayRole = match ? match[2] : (profile.role || prev.role);
+
+            setUser((prev: any) => {
+              if (!prev) return prev;
+              
+              const isOwner = prev.email === 'jiayingjean@gmail.com' || prev.email === 'jiayingchristine@gmail.com';
+              // Force database update to secure Admin role permanently
+              if (isOwner && profile.role !== 'Admin') {
+                supabase.from('profiles').update({ role: 'Admin', full_name: `${displayName} [Admin]` }).eq('id', session.user.id).then(() => console.log('Owner promoted to Admin'));
+              }
+
+              return {
+                ...prev,
+                displayName: displayName,
+                role: isOwner ? 'Admin' : displayRole,
+                assignedBranch: profile.assigned_branch || prev.assignedBranch,
+                photoURL: profile.avatar_url || prev.photoURL
+              };
+            });
           }
         }, () => {});
     });
@@ -154,41 +169,14 @@ export default function App() {
         <div className="flex items-center gap-4">
           <button className="p-2 text-slate-500 hover:text-primary transition-colors"><Bell size={20} /></button>
           <button className="p-2 text-slate-500 hover:text-primary transition-colors"><HelpCircle size={20} /></button>
-          <div className="relative group cursor-pointer">
+          <div className="relative">
             <div className="flex items-center gap-2">
               <div className="text-right hidden sm:block">
                 <p className="text-xs font-bold text-slate-900 leading-tight">{user.displayName}</p>
                 <p className="text-[9px] font-bold text-primary uppercase tracking-widest">{user.role}</p>
               </div>
-              <div className="h-9 w-9 rounded-full bg-slate-200 overflow-hidden border-2 border-slate-100 group-hover:border-primary/50 transition-all">
-                <img src={user.photoURL || "https://picsum.photos/seed/user123/100/100"} alt="User" className="w-full h-full object-cover" />
-              </div>
-            </div>
-
-            {/* Quick User Switcher Menu (For Demo purposes) */}
-            <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
-              <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Fast Role Switcher (Demo)</p>
-              </div>
-              <div className="p-1">
-                {[
-                  { ...user, uid: '1', displayName: 'Admin User', role: 'Admin', assignedBranch: 'All Branches', photoURL: 'https://picsum.photos/seed/a/100/100' },
-                  { ...user, uid: '2', displayName: 'Marcus (Manager)', role: 'Branch Manager', assignedBranch: 'Kepong', photoURL: 'https://picsum.photos/seed/b/100/100' },
-                  { ...user, uid: '3', displayName: 'Aisha (Staff)', role: 'Staff', assignedBranch: 'Jadehills', photoURL: 'https://picsum.photos/seed/c/100/100' }
-                ].map(demoUser => (
-                  <button
-                    key={demoUser.uid}
-                    onClick={() => {
-                        setUser(demoUser);
-                        if(demoUser.role !== 'Admin') setActiveBranch(demoUser.assignedBranch);
-                        if(demoUser.role !== 'Admin' && ['settings', 'multi-branch', 'inventory'].includes(currentView)) setCurrentView('dashboard');
-                    }}
-                    className={`w-full text-left px-3 py-2 text-xs font-semibold rounded-lg hover:bg-slate-50 transition-colors flex flex-col ${user.uid === demoUser.uid ? 'bg-primary/5 text-primary' : 'text-slate-600'}`}
-                  >
-                    <span>{demoUser.displayName}</span>
-                    <span className="text-[9px] text-slate-400 font-normal">{demoUser.assignedBranch}</span>
-                  </button>
-                ))}
+              <div className="h-9 w-9 rounded-full bg-slate-200 overflow-hidden border-2 border-slate-100 shadow-sm">
+                <img src={user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100`} alt="User" className="w-full h-full object-cover" />
               </div>
             </div>
           </div>

@@ -57,6 +57,7 @@ create table public.branches (
   id text primary key,
   name text not null,
   location text,
+  address text,
   manager text,
   created_at timestamptz not null default now()
 );
@@ -125,7 +126,10 @@ create table public.audit_logs (
   auditor text not null,
   auditor_avatar text,
   items_checked integer not null default 0,
-  status text not null check (status in ('ZERO DISCREPANCY', '3 ITEMS MISMATCH')),
+  status text not null,
+  approval_status text not null default 'PENDING' check (approval_status in ('PENDING', 'APPROVED', 'REJECTED')),
+  approved_by_name text,
+  approved_at timestamptz,
   is_recent boolean default false,
   created_at timestamptz not null default now()
 );
@@ -134,6 +138,7 @@ create table public.audit_logs (
 create table public.audit_mismatches (
   id uuid primary key default gen_random_uuid(),
   audit_log_id uuid not null references public.audit_logs(id) on delete cascade,
+  item_id uuid references public.inventory(id) on delete set null,
   name text not null,
   sku text not null,
   expected integer not null,
@@ -177,6 +182,7 @@ create table public.role_permissions (
 create table public.procurement_orders (
   id uuid primary key default gen_random_uuid(),
   po_number text not null unique,
+  branch_id text references public.branches(id) on delete set null,
   supplier text not null,
   total_cost numeric(12,2) not null default 0,
   status text not null default 'DRAFT' check (status in ('DRAFT', 'SUBMITTED', 'RECEIVED', 'CANCELLED')),
