@@ -22,3 +22,126 @@
     @apply font-manrope;
   }
 }
+
+/* ─── Dark Mode ──────────────────────────────────────────────────── */
+/*
+  Palette:
+    page bg   : #0a0f1e  (darkest navy)
+    sidebar   : #0d1526  (sidebar nav)
+    card      : #111827  (card surface)
+    card-alt  : #161f30  (table headers, nested surfaces)
+    elevated  : #1c2a40  (hover, inputs, modals)
+    border    : rgba(148,163,184,0.10)  (subtle slate)
+    border-md : rgba(148,163,184,0.16)
+    text-1    : #f0f4ff  (primary text)
+    text-2    : #94a3b8  (secondary / muted)
+    text-3    : #4a5568  (placeholder / disabled)
+*/
+
+.dark {
+  --color-surface: #0a0f1e;
+  --color-surface-container-low: #0d1526;
+  --color-surface-container-high: #1c2a40;
+  --color-on-surface-variant: #94a3b8;
+}
+
+.dark body {
+  background-color: #0a0f1e;
+  color: #f0f4ff;
+}
+
+/* ── Page layout ── */
+.dark header {
+  background-color: rgba(10, 15, 30, 0.92) !important;
+  border-bottom-color: rgba(148, 163, 184, 0.10) !important;
+}
+
+/* ── Card / panel surfaces ── */
+.dark .bg-white,
+.dark [class*="bg-white"] { background-color: #111827 !important; }
+
+.dark .bg-slate-50,
+.dark [class*="bg-slate-50"] { background-color: #161f30 !important; }
+
+.dark .bg-slate-100,
+.dark [class*="bg-slate-100"] { background-color: #1c2a40 !important; }
+
+.dark .bg-slate-200 { background-color: #243347 !important; }
+
+/* Table header row & alternating */
+.dark thead tr,
+.dark .border-b.bg-slate-50\/50 { background-color: #161f30 !important; }
+
+.dark tbody tr { background-color: #111827; }
+.dark tbody tr:hover { background-color: #1c2a40 !important; }
+.dark .divide-y > * { border-color: rgba(148, 163, 184, 0.08) !important; }
+
+/* ── Borders ── */
+.dark .border-slate-50  { border-color: rgba(148, 163, 184, 0.08) !important; }
+.dark .border-slate-100 { border-color: rgba(148, 163, 184, 0.10) !important; }
+.dark .border-slate-200 { border-color: rgba(148, 163, 184, 0.16) !important; }
+.dark .border-dashed    { border-color: rgba(148, 163, 184, 0.20) !important; }
+
+/* ── Text ── */
+.dark .text-slate-900 { color: #f0f4ff !important; }
+.dark .text-slate-800 { color: #e2e8f0 !important; }
+.dark .text-slate-700 { color: #cbd5e1 !important; }
+.dark .text-slate-600 { color: #8898aa !important; }
+.dark .text-slate-500 { color: #64748b !important; }
+.dark .text-slate-400 { color: #475569 !important; }
+
+/* ── Inputs & selects ── */
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  background-color: #1c2a40 !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+  color: #e2e8f0 !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder { color: #4a5568 !important; }
+
+/* ── Category / filter pills (inactive) ── */
+.dark button.bg-white.text-slate-500 {
+  background-color: #1c2a40 !important;
+  color: #94a3b8 !important;
+  border-color: rgba(148, 163, 184, 0.14) !important;
+}
+.dark button.bg-white.text-slate-500:hover {
+  background-color: #243347 !important;
+  color: #e2e8f0 !important;
+}
+
+/* Inactive "bg-white text-primary" outline buttons (Template, CSV) */
+.dark button.bg-white.text-primary {
+  background-color: #1c2a40 !important;
+  border-color: rgba(48, 127, 226, 0.30) !important;
+}
+.dark button.border-slate-200.text-slate-600 {
+  background-color: #1c2a40 !important;
+  color: #94a3b8 !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+/* Category badges in table cells */
+.dark .bg-slate-100.text-slate-600 {
+  background-color: #1c2a40 !important;
+  color: #94a3b8 !important;
+}
+
+/* ── Modals ── */
+.dark .bg-white.rounded-2xl,
+.dark .bg-white.rounded-3xl {
+  background-color: #111827 !important;
+  border-color: rgba(148, 163, 184, 0.10) !important;
+}
+.dark .shadow-2xl { box-shadow: 0 25px 60px -12px rgba(0,0,0,0.7) !important; }
+
+/* ── Nav sidebar items (hover state) ── */
+.dark .hover\:bg-white:hover { background-color: #1c2a40 !important; }
+
+/* ── Scrollbar (optional subtle styling) ── */
+.dark ::-webkit-scrollbar { width: 6px; height: 6px; }
+.dark ::-webkit-scrollbar-track { background: #0a0f1e; }
+.dark ::-webkit-scrollbar-thumb { background: #1c2a40; border-radius: 3px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #243347; }

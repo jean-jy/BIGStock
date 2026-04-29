@@ -32,6 +32,12 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const initialized = useRef(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+    localStorage.setItem('darkMode', String(darkMode));
+  }, [darkMode]);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -276,7 +282,7 @@ export default function App() {
             ) : currentView === 'inventory' ? (
               <InventoryView key={`inventory-${activeBranch}`} activeBranch={activeBranch} user={user} />
             ) : currentView === 'settings' ? (
-              <SettingsView user={user} />
+              <SettingsView user={user} darkMode={darkMode} onToggleDarkMode={() => setDarkMode(v => !v)} />
             ) : currentView === 'financials' ? (
               <FinancialsView key="financials" user={user} />
             ) : (

@@ -39,7 +39,7 @@ const InputField = ({ label, icon: Icon, placeholder, type = "text", value = "",
   </div>
 );
 
-export function SettingsView({ user }: { user: any }) {
+export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { user: any; darkMode?: boolean; onToggleDarkMode?: () => void }) {
   const [activeTab, setActiveTab] = useState<'profile' | 'clinic' | 'notifications' | 'security' | 'data' | 'users'>('profile');
   const [profileUsers, setProfileUsers] = useState<any[]>([]);
   const [rolePermissions, setRolePermissions] = useState<any[]>([]);
@@ -303,8 +303,8 @@ export function SettingsView({ user }: { user: any }) {
                       <p className="text-sm font-bold text-slate-900">Dark Mode</p>
                       <p className="text-[10px] text-slate-400">Switch between light and dark themes</p>
                     </div>
-                    <div className="w-12 h-6 bg-slate-200 rounded-full relative cursor-pointer">
-                      <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm"></div>
+                    <div onClick={onToggleDarkMode} className={`w-12 h-6 rounded-full relative cursor-pointer transition-colors ${darkMode ? 'bg-primary' : 'bg-slate-200'}`}>
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${darkMode ? 'right-1' : 'left-1'}`}></div>
                     </div>
                   </div>
                   <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
