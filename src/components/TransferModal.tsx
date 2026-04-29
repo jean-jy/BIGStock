@@ -54,23 +54,31 @@ export function TransferModal({ isOpen, onClose }: { isOpen: boolean, onClose: (
         console.warn("Supabase skipped for local dev transfer.");
       }
 
-      // Update branch_inventory in Supabase
-      try {
-        await supabase.rpc('transfer_branch_stock', undefined); // fallback: manual updates
-      } catch {
-        // Update branch_inventory directly
-        const { data: fromRow } = await supabase.from('branch_inventory').select('id, quantity').eq('branch_id', fromBranch).eq('item_id', selectedItem).maybeSingle();
-        const { data: toRow } = await supabase.from('branch_inventory').select('id, quantity').eq('branch_id', toBranch).eq('item_id', selectedItem).maybeSingle();
+      // Update branch_inventory directly
+      const { data: fromRow } = await supabase.from('branch_inventory').select('id, quantity').eq('branch_id', fromBranch).eq('item_id', selectedItem).maybeSingle();
+      const { data: toRow } = await supabase.from('branch_inventory').select('id, quantity').eq('branch_id', toBranch).eq('item_id', selectedItem).maybeSingle();
 
-        if (fromRow) {
-          await supabase.from('branch_inventory').update({ quantity: Math.max(0, fromRow.quantity - qty) }).eq('id', fromRow.id);
-        }
-        if (toRow) {
-          await supabase.from('branch_inventory').update({ quantity: toRow.quantity + qty }).eq('id', toRow.id);
-        } else {
-          await supabase.from('branch_inventory').insert({ branch_id: toBranch, item_id: selectedItem, quantity: qty });
-        }
+      if (fromRow) {
+        await supabase.from('branch_inventory').update({ quantity: Math.max(0, fromRow.quantity - qty) }).eq('id', fromRow.id);
       }
+      if (toRow) {
+        await supabase.from('branch_inventory').update({ quantity: toRow.quantity + qty }).eq('id', toRow.id);
+      } else {
+        await supabase.from('branch_inventory').insert({ branch_id: toBranch, item_id: selectedItem, quantity: qty });
+      }
+
+      // Record in transaction history
+      const { data: { session } } = await supabase.auth.getSession();
+      await supabase.from('inventory_transactions').insert({
+        type: 'TRANSFER',
+        item_id: selectedItem,
+        item_name: item.name,
+        quantity: qty,
+        unit: item.unit,
+        from_location: fromBranch,
+        to_location: toBranch,
+        performed_by: session?.user?.id || null,
+      });
 
       setSuccess(true);
       setTimeout(() => {

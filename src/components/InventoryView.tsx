@@ -150,15 +150,18 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
   const fetchItems = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('inventory')
-        .select('*')
-        .order('name')
-        .limit(5000);
+      const [invResult, historyResult] = await Promise.all([
+        supabase.from('inventory').select('*').order('name').limit(5000),
+        supabase.from('inventory_transactions')
+          .select('id, item_id, item_name, quantity, from_location, remarks, created_at')
+          .eq('type', 'STOCK_IN')
+          .order('created_at', { ascending: false })
+          .limit(30)
+      ]);
 
-      if (error) throw error;
+      if (invResult.error) throw invResult.error;
 
-      const mappedItems: InventoryItem[] = (data || []).map(item => ({
+      const mappedItems: InventoryItem[] = (invResult.data || []).map(item => ({
         ...item,
         category: normalizeCategory(item.category || ''),
         lastAudit: item.last_audit || 'Never',
@@ -166,10 +169,19 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
       }));
 
       setItems(mappedItems);
-
-      // Extract unique categories (case-insensitive merge via normalizeCategory)
       const dbCategories = Array.from(new Set(mappedItems.map(i => i.category).filter(Boolean))).sort();
       setCategories(dbCategories);
+
+      setStockInHistory((historyResult.data || []).map(tx => ({
+        id: tx.id,
+        itemId: tx.item_id,
+        itemName: tx.item_name || 'Unknown Item',
+        quantity: tx.quantity,
+        supplierName: tx.from_location || '—',
+        invoiceNo: '',
+        notes: tx.remarks || '',
+        date: tx.created_at ? new Date(tx.created_at).toLocaleDateString('en-MY', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
+      })));
     } catch (error) {
       console.error('Error fetching inventory:', error);
     } finally {

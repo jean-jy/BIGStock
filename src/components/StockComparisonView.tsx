@@ -264,7 +264,19 @@ export function StockComparisonView() {
                 </p>
               </div>
               <div className="w-px h-8 bg-slate-100"></div>
-              <button className="flex items-center gap-2 text-primary text-sm font-bold hover:opacity-80 transition-opacity">
+              <button
+                onClick={() => {
+                  const headers = ['Item Name', 'SKU', 'Last Count', 'Current Count', 'Variance', 'Status'];
+                  const rows = auditData.map(item => {
+                    const diff = item.currentCount - item.lastCount;
+                    return [item.name, item.sku, item.lastCount, item.currentCount, diff > 0 ? `+${diff}` : diff, diff > 0 ? 'EXTRA' : diff < 0 ? 'MISSING' : 'MATCHED'];
+                  });
+                  const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+                  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), download: `variance-${new Date().toISOString().split('T')[0]}.csv` });
+                  a.click();
+                }}
+                className="flex items-center gap-2 text-primary text-sm font-bold hover:opacity-80 transition-opacity"
+              >
                 <Download size={16} /> Export Variance
               </button>
             </div>

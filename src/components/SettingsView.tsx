@@ -49,6 +49,69 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
     return saved ? JSON.parse(saved) : ['Admin', 'Branch Manager', 'Staff'];
   });
 
+  // Profile form
+  const [profileForm, setProfileForm] = useState({ fullName: user?.displayName || '', title: 'Clinic Administrator', phone: '' });
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const handleSaveProfile = async () => {
+    setSavingProfile(true);
+    try {
+      await supabase.from('profiles').update({ full_name: `${profileForm.fullName} [${user?.role || 'Admin'}]` }).eq('id', user?.id);
+      await supabase.auth.updateUser({ data: { full_name: profileForm.fullName } });
+      alert('Profile updated successfully!');
+    } catch (err: any) {
+      alert('Failed to update profile: ' + err.message);
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  // Password form
+  const [passwordForm, setPasswordForm] = useState({ newPass: '', confirm: '' });
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  const handleUpdatePassword = async () => {
+    if (!passwordForm.newPass || passwordForm.newPass !== passwordForm.confirm) {
+      alert(passwordForm.newPass ? 'Passwords do not match.' : 'Please enter a new password.');
+      return;
+    }
+    if (passwordForm.newPass.length < 6) { alert('Password must be at least 6 characters.'); return; }
+    setSavingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: passwordForm.newPass });
+      if (error) throw error;
+      alert('Password updated successfully!');
+      setPasswordForm({ newPass: '', confirm: '' });
+    } catch (err: any) {
+      alert('Failed to update password: ' + err.message);
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
+  // Compact view toggle
+  const [compactView, setCompactView] = useState(() => localStorage.getItem('compactView') === 'true');
+  const handleToggleCompact = () => {
+    const next = !compactView;
+    setCompactView(next);
+    localStorage.setItem('compactView', String(next));
+  };
+
+  // Export master sheet
+  const handleExportMasterSheet = async () => {
+    try {
+      const { data, error } = await supabase.from('inventory').select('*').order('name');
+      if (error) throw error;
+      const headers = ['Name', 'SKU', 'Category', 'Type', 'Total', 'Unit', 'Price (RM)', 'Min Stock', 'Status'];
+      const rows = (data || []).map(item => [item.name, item.sku, item.category, item.item_type || 'Stock', item.total, item.unit, (item.price || 0).toFixed(2), item.min_stock || 20, item.status]);
+      const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), download: `inventory-master-${new Date().toISOString().split('T')[0]}.csv` });
+      a.click();
+    } catch (err: any) {
+      alert('Export failed: ' + err.message);
+    }
+  };
+
   const saveRoles = (newRoles: string[]) => {
     setCustomRoles(newRoles);
     localStorage.setItem('clinic_roles', JSON.stringify(newRoles));
@@ -266,15 +329,15 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
                     </button>
                   </div>
                   <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
-                    <InputField label="Full Name" icon={User} placeholder="Enter your name" value={user?.user_metadata?.full_name || user?.displayName || "System Manager"} />
-                    <InputField label="Job Title" icon={Shield} placeholder="Enter your title" value="Clinic Administrator" />
-                    <InputField label="Email Address" icon={Mail} placeholder="Enter your email" value={user?.email || "admin@bigdental.com"} />
-                    <InputField label="Phone Number" icon={Phone} placeholder="Enter your phone" value="+60 12-345 6789" />
+                    <InputField label="Full Name" icon={User} placeholder="Enter your name" value={profileForm.fullName} onChange={v => setProfileForm(f => ({ ...f, fullName: v }))} />
+                    <InputField label="Job Title" icon={Shield} placeholder="Enter your title" value={profileForm.title} onChange={v => setProfileForm(f => ({ ...f, title: v }))} />
+                    <InputField label="Email Address" icon={Mail} placeholder="Enter your email" value={user?.email || ''} />
+                    <InputField label="Phone Number" icon={Phone} placeholder="Enter your phone" value={profileForm.phone} onChange={v => setProfileForm(f => ({ ...f, phone: v }))} />
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <button className="px-6 py-2.5 bg-primary text-white text-xs font-bold rounded-lg shadow-md hover:opacity-90 transition-all active:scale-95">
-                    Save Profile Changes
+                  <button onClick={handleSaveProfile} disabled={savingProfile} className="px-6 py-2.5 bg-primary text-white text-xs font-bold rounded-lg shadow-md hover:opacity-90 transition-all active:scale-95 disabled:opacity-50">
+                    {savingProfile ? 'Saving...' : 'Save Profile Changes'}
                   </button>
                 </div>
               </SettingSection>
@@ -312,8 +375,8 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
                       <p className="text-sm font-bold text-slate-900">Compact View</p>
                       <p className="text-[10px] text-slate-400">Show more items in tables with less padding</p>
                     </div>
-                    <div className="w-12 h-6 bg-primary rounded-full relative cursor-pointer">
-                      <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm"></div>
+                    <div onClick={handleToggleCompact} className={`w-12 h-6 rounded-full relative cursor-pointer transition-colors ${compactView ? 'bg-primary' : 'bg-slate-200'}`}>
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all ${compactView ? 'right-1' : 'left-1'}`}></div>
                     </div>
                   </div>
                 </div>
@@ -615,12 +678,11 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
             <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
               <SettingSection title="Password & Authentication" description="Secure your account with strong credentials">
                 <div className="grid grid-cols-1 gap-4 max-w-md">
-                  <InputField label="Current Password" icon={Shield} type="password" placeholder="••••••••" />
-                  <InputField label="New Password" icon={Shield} type="password" placeholder="••••••••" />
-                  <InputField label="Confirm New Password" icon={Shield} type="password" placeholder="••••••••" />
+                  <InputField label="New Password" icon={Shield} type="password" placeholder="••••••••" value={passwordForm.newPass} onChange={v => setPasswordForm(f => ({ ...f, newPass: v }))} />
+                  <InputField label="Confirm New Password" icon={Shield} type="password" placeholder="••••••••" value={passwordForm.confirm} onChange={v => setPasswordForm(f => ({ ...f, confirm: v }))} />
                   <div className="pt-2">
-                    <button className="w-full py-2.5 bg-slate-900 text-white text-xs font-bold rounded-lg shadow-md hover:bg-slate-800 transition-all">
-                      Update Password
+                    <button onClick={handleUpdatePassword} disabled={savingPassword} className="w-full py-2.5 bg-slate-900 text-white text-xs font-bold rounded-lg shadow-md hover:bg-slate-800 transition-all disabled:opacity-50">
+                      {savingPassword ? 'Updating...' : 'Update Password'}
                     </button>
                   </div>
                 </div>
@@ -638,7 +700,7 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
                         <p className="text-[10px] text-amber-600">Add an extra layer of security to your account</p>
                       </div>
                     </div>
-                    <button className="px-4 py-2 bg-amber-600 text-white text-[10px] font-bold rounded-lg uppercase tracking-widest">Enable</button>
+                    <button onClick={() => alert('Two-Factor Authentication coming soon.')} className="px-4 py-2 bg-amber-600 text-white text-[10px] font-bold rounded-lg uppercase tracking-widest">Enable</button>
                   </div>
                 </div>
               </SettingSection>
@@ -649,19 +711,19 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
             <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
               <SettingSection title="Export & Backup" description="Download your inventory data for external use">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <button className="flex flex-col items-center justify-center p-8 bg-slate-50 rounded-2xl border border-slate-100 hover:border-primary/30 hover:bg-white transition-all group">
+                  <button onClick={handleExportMasterSheet} className="flex flex-col items-center justify-center p-8 bg-slate-50 rounded-2xl border border-slate-100 hover:border-primary/30 hover:bg-white transition-all group">
                     <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-slate-400 group-hover:text-primary transition-colors mb-4 shadow-sm">
                       <Download size={24} />
                     </div>
                     <p className="text-sm font-bold text-slate-900">Export Master Sheet</p>
                     <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Download as .CSV</p>
                   </button>
-                  <button className="flex flex-col items-center justify-center p-8 bg-slate-50 rounded-2xl border border-slate-100 hover:border-primary/30 hover:bg-white transition-all group">
+                  <button onClick={() => alert('Cloud Backup coming soon.')} className="flex flex-col items-center justify-center p-8 bg-slate-50 rounded-2xl border border-slate-100 hover:border-primary/30 hover:bg-white transition-all group">
                     <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-slate-400 group-hover:text-primary transition-colors mb-4 shadow-sm">
                       <CloudUpload size={24} />
                     </div>
                     <p className="text-sm font-bold text-slate-900">Cloud Backup</p>
-                    <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Sync to Secure Cloud</p>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest mt-1">Coming Soon</p>
                   </button>
                 </div>
               </SettingSection>

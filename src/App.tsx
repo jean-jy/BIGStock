@@ -195,8 +195,8 @@ export default function App() {
           </nav>
         </div>
         <div className="flex items-center gap-4">
-          <button className="p-2 text-slate-500 hover:text-primary transition-colors"><Bell size={20} /></button>
-          <button className="p-2 text-slate-500 hover:text-primary transition-colors"><HelpCircle size={20} /></button>
+          <button onClick={() => alert('Notifications coming soon.')} className="p-2 text-slate-500 hover:text-primary transition-colors"><Bell size={20} /></button>
+          <button onClick={() => alert('Help & Documentation coming soon.')} className="p-2 text-slate-500 hover:text-primary transition-colors"><HelpCircle size={20} /></button>
           <div className="relative">
             <div className="flex items-center gap-2">
               <div className="text-right hidden sm:block">

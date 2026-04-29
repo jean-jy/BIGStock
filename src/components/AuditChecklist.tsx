@@ -31,6 +31,7 @@ export function AuditChecklist({ onBack }: { onBack: () => void, key?: string })
   const [branches, setBranches] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [auditNotes, setAuditNotes] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -126,7 +127,7 @@ export function AuditChecklist({ onBack }: { onBack: () => void, key?: string })
       // Record as activity
       await supabase.from('activities').insert({
         type: 'audit',
-        title: `Audit Completed (${status})`,
+        title: auditNotes ? `Audit Completed (${status}) — ${auditNotes}` : `Audit Completed (${status})`,
         location: `${selectedBranch} Branch`,
         time: new Date().toLocaleString('en-MY')
       });
@@ -310,10 +311,12 @@ export function AuditChecklist({ onBack }: { onBack: () => void, key?: string })
             <div className="flex-1 max-w-lg w-full">
               <label className="text-[10px] font-bold text-slate-400 uppercase block mb-2">Audit Notes (Optional)</label>
               <textarea
+                value={auditNotes}
+                onChange={e => setAuditNotes(e.target.value)}
                 className="w-full bg-white border border-slate-200 focus:border-primary focus:ring-0 text-sm p-3 rounded-lg shadow-inner resize-none"
                 placeholder="Mention any damages or expired stock here..."
                 rows={2}
-              ></textarea>
+              />
             </div>
             <div className="flex items-center gap-6">
               <div className="text-right">
