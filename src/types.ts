@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type View = 'dashboard' | 'audit-checklist' | 'multi-branch' | 'stock-comparison' | 'inventory' | 'settings';
+export type View = 'dashboard' | 'audit-checklist' | 'multi-branch' | 'stock-comparison' | 'inventory' | 'settings' | 'financials';
 
 export interface InventoryItem {
   id: string;
@@ -18,6 +18,9 @@ export interface InventoryItem {
   price: number;
   min_stock?: number;
   branchStock?: Record<string, number>;
+  is_reorder_flagged?: boolean;
+  reorder_flag_remark?: string;
+  item_type?: 'Stock' | 'Asset';
 }
 
 export const BRANCH_NAMES = ['Kepong', 'Jadehills', 'Puchong'] as const;

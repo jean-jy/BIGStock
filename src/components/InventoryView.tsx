@@ -1,16 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpreadsheet } from 'lucide-react';
+import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpreadsheet, Search, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
 import type { InventoryItem } from '../types';
 import { StatusBadge } from './StatusBadge';
 
-export function InventoryView({ activeBranch }: { activeBranch: string, key?: string }) {
+/** Normalize a category string to Title Case so that "CLEANING", "cleaning", "Cleaning" all become "Cleaning" */
+function normalizeCategory(cat: string): string {
+  if (!cat) return cat;
+  return cat
+    .toLowerCase()
+    .split(/\s+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+export function InventoryView({ activeBranch, user }: { activeBranch: string, user?: any, key?: string }) {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
-  const [categories, setCategories] = useState(['Surgery', 'Consumables', 'Prosthetics', 'Endodontics', 'Orthodontics', 'Instruments']);
+  const [categories, setCategories] = useState<string[]>([]);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
@@ -32,16 +42,19 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
     date: string;
   }>>([]);
   const [activeCategory, setActiveCategory] = useState('All');
+  const [activeType, setActiveType] = useState<'All' | 'Stock' | 'Asset'>('All');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [newItem, setNewItem] = useState({
     name: '',
     subtext: '',
-    category: 'Surgery',
+    category: '',
     sku: '',
     total: 0,
     unit: 'Units',
     price: 0,
-    min_stock: 20
+    min_stock: 20,
+    item_type: 'Stock' as 'Stock' | 'Asset'
   });
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -70,7 +83,8 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
       
       // Skip header
       const dataRows = lines.slice(1);
-      const itemsToInsert: any[] = [];
+      // Use a Map keyed by SKU to deduplicate — last row with same SKU wins
+      const itemMap = new Map<string, any>();
       const newCats = new Set<string>(categories);
 
       dataRows.forEach(row => {
@@ -81,12 +95,14 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
         const [name, subtext, category, sku, price, qty, unit, minStock] = cols;
         const currentQty = parseInt(qty) || 0;
         const alertLevel = parseInt(minStock) || 20;
+        const itemSku = sku || `SKU-${Math.random().toString(36).substr(2, 9)}`;
 
-        itemsToInsert.push({
+        const normalizedCat = normalizeCategory(category || 'General');
+        itemMap.set(itemSku, {
           name,
           subtext: subtext || '',
-          category: category || 'General',
-          sku: sku || `SKU-${Math.random().toString(36).substr(2, 9)}`,
+          category: normalizedCat,
+          sku: itemSku,
           price: parseFloat(price) || 0,
           total: currentQty,
           unit: unit || 'Units',
@@ -94,8 +110,10 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
           status: currentQty < alertLevel ? 'REORDER' : (currentQty < alertLevel * 2 ? 'BALANCED' : 'HEALTHY'),
           last_audit: new Date().toISOString()
         });
-        if (category) newCats.add(category);
+        if (category) newCats.add(normalizedCat);
       });
+
+      const itemsToInsert = Array.from(itemMap.values());
 
       if (itemsToInsert.length === 0) {
         alert("No valid items found in the CSV.");
@@ -104,16 +122,18 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
 
       try {
         setLoading(true);
-        // Using upsert with onConflict on 'sku' ensures we update existing items 
-        // and only insert new ones. Note: 'sku' must have a unique constraint in DB.
-        const { error: err } = await supabase
-          .from('inventory')
-          .upsert(itemsToInsert, { onConflict: 'sku' });
-
-        if (err) throw err;
+        // Batch upserts in chunks of 50 to avoid DB limits
+        const CHUNK_SIZE = 50;
+        for (let i = 0; i < itemsToInsert.length; i += CHUNK_SIZE) {
+          const chunk = itemsToInsert.slice(i, i + CHUNK_SIZE);
+          const { error: err } = await supabase
+            .from('inventory')
+            .upsert(chunk, { onConflict: 'sku' });
+          if (err) throw err;
+        }
 
         alert(`Successfully processed ${itemsToInsert.length} items!`);
-        setCategories(Array.from(newCats));
+        // Categories will be refreshed by fetchItems() below
         fetchItems();
       } catch (err: any) {
         console.error("CSV Import Error:", err);
@@ -140,11 +160,16 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
 
       const mappedItems: InventoryItem[] = (data || []).map(item => ({
         ...item,
+        category: normalizeCategory(item.category || ''),
         lastAudit: item.last_audit || 'Never',
         branchStock: {}
       }));
 
       setItems(mappedItems);
+
+      // Extract unique categories (case-insensitive merge via normalizeCategory)
+      const dbCategories = Array.from(new Set(mappedItems.map(i => i.category).filter(Boolean))).sort();
+      setCategories(dbCategories);
     } catch (error) {
       console.error('Error fetching inventory:', error);
     } finally {
@@ -157,8 +182,9 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
   }, [activeBranch]);
 
   const handleAddCategory = () => {
-    if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
-      setCategories([...categories, newCategoryName.trim()]);
+    const normalized = normalizeCategory(newCategoryName.trim());
+    if (normalized && !categories.includes(normalized)) {
+      setCategories([...categories, normalized]);
       setNewCategoryName('');
       setIsAddingCategory(false);
     }
@@ -194,15 +220,39 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
           })
           .eq('id', editingItem.id);
         if (error) throw error;
+
+        // SYNC BRANCH DATA
+        if (newItem.total === 0) {
+          await supabase.from('branch_inventory').update({ quantity: 0 }).eq('item_id', editingItem.id);
+        } else {
+          // Simplistic override: if they type a new total, put it in the active branch or main branch
+          const targetBranch = activeBranch === 'All Branches' ? 'Main Branch' : activeBranch;
+          // Zero out others
+          await supabase.from('branch_inventory').update({ quantity: 0 }).eq('item_id', editingItem.id).neq('branch_id', targetBranch);
+          // Set this one
+          const { data: biCheck } = await supabase.from('branch_inventory').select('id').eq('item_id', editingItem.id).eq('branch_id', targetBranch).maybeSingle();
+          if (biCheck) {
+            await supabase.from('branch_inventory').update({ quantity: newItem.total }).eq('id', biCheck.id);
+          } else {
+            await supabase.from('branch_inventory').insert({ item_id: editingItem.id, branch_id: targetBranch, quantity: newItem.total });
+          }
+        }
       } else {
-        const { error } = await supabase
+        const { data: inserted, error } = await supabase
           .from('inventory')
           .insert({
             ...newItem,
             status,
             last_audit: new Date().toISOString()
-          });
+          })
+          .select('id')
+          .single();
         if (error) throw error;
+
+        if (inserted && newItem.total > 0) {
+          const targetBranch = activeBranch === 'All Branches' ? 'Main Branch' : activeBranch;
+          await supabase.from('branch_inventory').insert({ item_id: inserted.id, branch_id: targetBranch, quantity: newItem.total });
+        }
       }
       fetchItems();
       closeModal();
@@ -222,7 +272,8 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
       total: item.total,
       unit: item.unit,
       price: item.price || 0,
-      min_stock: item.min_stock || 20
+      min_stock: item.min_stock || 20,
+      item_type: item.item_type || 'Stock'
     });
     setIsModalOpen(true);
   };
@@ -230,7 +281,7 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingItem(null);
-    setNewItem({ name: '', subtext: '', category: 'Surgery', sku: '', total: 0, unit: 'Units', price: 0, min_stock: 20 });
+    setNewItem({ name: '', subtext: '', category: categories[0] || '', sku: '', total: 0, unit: 'Units', price: 0, min_stock: 20, item_type: 'Stock' as 'Stock' | 'Asset' });
   };
 
   const handleDeleteItem = async (id: string) => {
@@ -294,6 +345,15 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
 
       if (txError) throw txError;
 
+      // SYNC BRANCH DATA
+      const targetBranch = activeBranch === 'All Branches' ? 'Main Branch' : activeBranch;
+      const { data: biRow } = await supabase.from('branch_inventory').select('id, quantity').eq('item_id', stockInItem.id).eq('branch_id', targetBranch).maybeSingle();
+      if (biRow) {
+        await supabase.from('branch_inventory').update({ quantity: biRow.quantity + stockInForm.quantity }).eq('id', biRow.id);
+      } else {
+        await supabase.from('branch_inventory').insert({ item_id: stockInItem.id, branch_id: targetBranch, quantity: stockInForm.quantity });
+      }
+
       fetchItems();
       closeStockInModal();
     } catch (error) {
@@ -348,8 +408,42 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
         </div>
       </div>
 
-      {/* Category Filter Pills */}
+      {/* Search Bar */}
+      <div className="relative mb-6">
+        <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search by item name, description, category or SKU..."
+          className="w-full pl-11 pr-10 py-3 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/15 focus:border-primary/30 transition-all shadow-sm"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-all"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {/* Type & Category Filter Pills */}
+      <div className="flex flex-wrap gap-2 mb-4 items-center">
+        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mr-2">Type:</span>
+        {(['All', 'Stock', 'Asset'] as const).map(type => (
+          <button 
+            key={type}
+            onClick={() => setActiveType(type)}
+            className={`px-4 py-2 text-xs font-bold rounded-full shadow-sm transition-all ${activeType === type ? 'bg-indigo-600 text-white shadow-indigo-600/20' : 'bg-white text-slate-500 border border-slate-100 hover:border-indigo-600/20 hover:text-indigo-600'}`}
+          >
+            {type === 'All' ? 'All Types' : type}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap gap-2 mb-8 items-center">
+        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mr-2">Category:</span>
         <button 
           onClick={() => setActiveCategory('All')}
           className={`px-4 py-2 text-xs font-bold rounded-full shadow-sm transition-all ${activeCategory === 'All' ? 'bg-primary text-white shadow-primary/20' : 'bg-white text-slate-500 border border-slate-100'}`}
@@ -429,11 +523,32 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {items.filter(i => activeCategory === 'All' || i.category === activeCategory).map((item) => (
+            {items.filter(i => {
+              const itemType = i.item_type || 'Stock';
+              if (activeType !== 'All' && itemType !== activeType) return false;
+              
+              const matchesCategory = activeCategory === 'All' || i.category === activeCategory;
+              if (!matchesCategory) return false;
+              if (!searchQuery.trim()) return true;
+              const q = searchQuery.toLowerCase();
+              return (
+                i.name.toLowerCase().includes(q) ||
+                (i.subtext || '').toLowerCase().includes(q) ||
+                (i.category || '').toLowerCase().includes(q) ||
+                (i.sku || '').toLowerCase().includes(q)
+              );
+            }).map((item) => (
               <tr key={item.id} className="hover:bg-slate-50/30 transition-colors group">
                 <td className="px-6 py-5">
-                  <p className="text-sm font-bold text-slate-900">{item.name}</p>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-tight">{item.subtext}</p>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
+                      (item.item_type || 'Stock') === 'Asset' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                    }`}>
+                      {item.item_type || 'Stock'}
+                    </span>
+                    <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                  </div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-tight mt-1">{item.subtext}</p>
                 </td>
                 <td className="px-6 py-5">
                   <span className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase">{item.category}</span>
@@ -506,7 +621,7 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
               </div>
               <form onSubmit={handleCreateOrUpdate} className="p-6 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="col-span-2">
+                  <div className="col-span-2 md:col-span-1">
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Item Name</label>
                     <input
                       required
@@ -515,6 +630,17 @@ export function InventoryView({ activeBranch }: { activeBranch: string, key?: st
                       className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/10 transition-all"
                       placeholder="e.g. Dental Mirror #4"
                     />
+                  </div>
+                  <div className="col-span-2 md:col-span-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Item Type</label>
+                    <select
+                      value={newItem.item_type}
+                      onChange={e => setNewItem({...newItem, item_type: e.target.value as 'Stock' | 'Asset'})}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/10 transition-all font-bold"
+                    >
+                      <option value="Stock">Stock (Consumables, Merch)</option>
+                      <option value="Asset">Asset (Equipment, Computers)</option>
+                    </select>
                   </div>
                   <div className="col-span-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Description / Subtext</label>

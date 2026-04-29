@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Bell, HelpCircle, Hospital, MapPin, Sparkles,
   ArrowRightLeft, LogOut
@@ -23,6 +23,7 @@ import { InventoryView } from './components/InventoryView';
 import { SettingsView } from './components/SettingsView';
 import { AuditChecklist } from './components/AuditChecklist';
 import { TransferModal } from './components/TransferModal';
+import { FinancialsView } from './components/FinancialsView';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -30,11 +31,14 @@ export default function App() {
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const initialized = useRef(false);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
         setUser(null);
+        setCurrentView('dashboard');
+        initialized.current = false;
         setAuthLoading(false);
         return;
       }
@@ -49,12 +53,16 @@ export default function App() {
       };
 
       setUser(u);
-      if (event === 'SIGNED_IN') {
-        setCurrentView('dashboard');
-        setActiveBranch(u.assignedBranch === 'All Branches' ? 'Main Branch' : u.assignedBranch);
-      }
       setAuthLoading(false);
 
+      // Only perform once-per-session redirect or branch set
+      if (!initialized.current) {
+        setActiveBranch(u.assignedBranch === 'All Branches' ? 'Main Branch' : u.assignedBranch);
+        setCurrentView('dashboard');
+        initialized.current = true;
+      }
+
+      // Fetch Profile
       supabase
         .from('profiles')
         .select('*')
@@ -64,18 +72,15 @@ export default function App() {
           if (profile) {
             const fullName = profile.full_name || '';
             const match = fullName.match(/(.*) \[(.*)\]$/);
-            const displayName = match ? match[1] : (profile.full_name || prev.displayName);
-            const displayRole = match ? match[2] : (profile.role || prev.role);
+            const displayName = match ? match[1] : (profile.full_name || u.displayName);
+            const displayRole = match ? match[2] : (profile.role || u.role);
 
             setUser((prev: any) => {
               if (!prev) return prev;
-              
               const isOwner = prev.email === 'jiayingjean@gmail.com' || prev.email === 'jiayingchristine@gmail.com';
-              // Force database update to secure Admin role permanently
               if (isOwner && profile.role !== 'Admin') {
                 supabase.from('profiles').update({ role: 'Admin', full_name: `${displayName} [Admin]` }).eq('id', session.user.id).then(() => console.log('Owner promoted to Admin'));
               }
-
               return {
                 ...prev,
                 displayName: displayName,
@@ -85,7 +90,7 @@ export default function App() {
               };
             });
           }
-        }, () => {});
+        });
     });
 
     return () => subscription.unsubscribe();
@@ -152,6 +157,16 @@ export default function App() {
                 }`}
               >
                 Inventory
+              </button>
+            )}
+            {user?.role === 'Admin' && (
+              <button
+                onClick={() => setCurrentView('financials')}
+                className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${
+                  currentView === 'financials' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'
+                }`}
+              >
+                Financials
               </button>
             )}
             {user?.role === 'Admin' && (
@@ -259,9 +274,11 @@ export default function App() {
             ) : currentView === 'stock-comparison' ? (
               <StockComparisonView key="stock-comparison" />
             ) : currentView === 'inventory' ? (
-              <InventoryView key={`inventory-${activeBranch}`} activeBranch={activeBranch} />
+              <InventoryView key={`inventory-${activeBranch}`} activeBranch={activeBranch} user={user} />
             ) : currentView === 'settings' ? (
               <SettingsView user={user} />
+            ) : currentView === 'financials' ? (
+              <FinancialsView key="financials" user={user} />
             ) : (
               <AuditChecklist key="audit" onBack={() => setCurrentView('dashboard')} />
             )}

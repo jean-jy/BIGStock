@@ -4,6 +4,16 @@ import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { PendingTransfersList } from './PendingTransfersList';
 
+/** Normalize a category string to Title Case so that "CLEANING", "cleaning", "Cleaning" all become "Cleaning" */
+function normalizeCategory(cat: string): string {
+  if (!cat) return cat;
+  return cat
+    .toLowerCase()
+    .split(/\s+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 interface MultiBranchItem {
   id: string;
   name: string;
@@ -34,7 +44,7 @@ export function MultiBranchView({ onOpenTransfer }: { onOpenTransfer: () => void
           const inv = row.inventory as any;
           if (!inv) continue;
           if (!itemMap.has(inv.id)) {
-            itemMap.set(inv.id, { id: inv.id, name: inv.name, category: inv.category, branches: {}, total: 0 });
+            itemMap.set(inv.id, { id: inv.id, name: inv.name, category: normalizeCategory(inv.category || ''), branches: {}, total: 0 });
           }
           const item = itemMap.get(inv.id)!;
           item.branches[row.branch_id] = row.quantity;

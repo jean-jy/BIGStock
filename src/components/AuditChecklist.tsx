@@ -3,6 +3,16 @@ import { Package, AlertCircle, ArrowLeft, Calendar, Filter, CheckCircle2, CloudU
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 
+/** Normalize a category string to Title Case so that "CLEANING", "cleaning", "Cleaning" all become "Cleaning" */
+function normalizeCategory(cat: string): string {
+  if (!cat) return cat;
+  return cat
+    .toLowerCase()
+    .split(/\s+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 interface AuditItem {
   id: string;
   name: string;
@@ -27,17 +37,19 @@ export function AuditChecklist({ onBack }: { onBack: () => void, key?: string })
       setLoading(true);
       try {
         const [invResult, branchResult] = await Promise.all([
-          supabase.from('inventory').select('id, name, sku, category, total, unit').order('name'),
+          supabase.from('inventory').select('id, name, sku, category, total, unit, item_type').order('name'),
           supabase.from('branches').select('id').order('name')
         ]);
 
-        setAuditItems((invResult.data || []).map(item => ({
-          id: item.id,
-          name: item.name,
-          sku: item.sku,
-          category: item.category,
-          system: item.total,
-          unit: item.unit
+        setAuditItems((invResult.data || [])
+          .filter((item: any) => item.item_type !== 'Asset')
+          .map((item: any) => ({
+            id: item.id,
+            name: item.name,
+            sku: item.sku,
+            category: normalizeCategory(item.category || ''),
+            system: item.total,
+            unit: item.unit
         })));
 
         setBranches((branchResult.data || []).map(b => b.id));

@@ -113,7 +113,7 @@ export function StockComparisonView() {
 
           const { data: transactions, error: txError } = await supabase
             .from('inventory_transactions')
-            .select('item_id, quantity, type')
+            .select('item_id, quantity, type, from_location')
             .order('created_at', { ascending: false });
           if (txError) throw txError;
 

@@ -12,14 +12,28 @@ import type { InventoryItem, ProcurementOrder, POLineItem, AuditLog } from '../t
 import { StatsCard } from './StatsCard';
 import { StatusBadge } from './StatusBadge';
 
+/** Normalize a category string to Title Case so that "CLEANING", "cleaning", "Cleaning" all become "Cleaning" */
+function normalizeCategory(cat: string): string {
+  if (!cat) return cat;
+  return cat
+    .toLowerCase()
+    .split(/\s+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAudit: () => void, activeBranch: string, user?: any, key?: string }) {
   const [dashTab, setDashTab] = useState<'inventory' | 'audit' | 'procurement' | 'transactions'>('inventory');
+  const [activeItemType, setActiveItemType] = useState<'All' | 'Stock' | 'Asset'>('All');
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedAuditId, setExpandedAuditId] = useState<string | null>(null);
   const [poModalOpen, setPoModalOpen] = useState(false);
   const [usageModalOpen, setUsageModalOpen] = useState(false);
+  const [flagModalOpen, setFlagModalOpen] = useState(false);
+  const [flagForm, setFlagForm] = useState({ itemId: '', remark: '' });
+  const [flaggedItemName, setFlaggedItemName] = useState('');
   const [usageForm, setUsageForm] = useState({ itemId: '', quantity: 1, remarks: '' });
   const [auditLogs, setAuditLogs] = useState<(AuditLog & { mismatchedItems?: any[] })[]>([]);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -59,7 +73,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       });
       setBranchInventory(binv);
 
-      setItems((invResult.data || []).map(i => ({ ...i, lastAudit: i.last_audit || 'Never' })));
+      setItems((invResult.data || []).map(i => ({ ...i, category: normalizeCategory(i.category || ''), lastAudit: i.last_audit || 'Never' })));
       setTransactions(txResult.data || []);
 
       // Map audit logs
@@ -137,6 +151,30 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
           .update({ total: newTotal, status, last_audit: new Date().toISOString() })
           .eq('id', item.id);
 
+        // SYNC: Update branch_inventory for the specific branch
+        const { data: biRow } = await supabase
+          .from('branch_inventory')
+          .select('id, quantity')
+          .eq('branch_id', activeBranch)
+          .eq('item_id', item.id)
+          .maybeSingle();
+
+        if (biRow) {
+          await supabase
+            .from('branch_inventory')
+            .update({ quantity: Math.max(0, biRow.quantity - usageForm.quantity) })
+            .eq('id', biRow.id);
+        } else {
+          // If for some reason it's not in the branch list, we assume it started with what was in the master list
+          await supabase
+            .from('branch_inventory')
+            .insert({ 
+              branch_id: activeBranch, 
+              item_id: item.id, 
+              quantity: Math.max(0, (item as any).branchStock?.[activeBranch] || 0) - usageForm.quantity 
+            });
+        }
+
         await supabase.from('inventory_transactions').insert({
           type: 'USAGE',
           item_id: item.id,
@@ -157,6 +195,46 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
 
     setUsageModalOpen(false);
     setUsageForm({ itemId: '', quantity: 1, remarks: '' });
+  };
+
+  const handleSubmitFlag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!flagForm.itemId) return;
+    
+    try {
+      await supabase
+        .from('inventory')
+        .update({ 
+          is_reorder_flagged: true, 
+          reorder_flag_remark: flagForm.remark 
+        })
+        .eq('id', flagForm.itemId);
+        
+      alert('Item successfully flagged for reorder!');
+      fetchData();
+    } catch (err) {
+      console.error('Error flagging item:', err);
+    }
+    setFlagModalOpen(false);
+    setFlagForm({ itemId: '', remark: '' });
+  };
+
+  const handleUnflag = async (itemId: string) => {
+    if (user?.role === 'Staff') return; // Only Admin or Manager can resolve flag
+    if (window.confirm('Mark this reorder request as resolved/cleared?')) {
+      try {
+        await supabase
+          .from('inventory')
+          .update({ 
+            is_reorder_flagged: false, 
+            reorder_flag_remark: null 
+          })
+          .eq('id', itemId);
+        fetchData();
+      } catch (err) {
+        console.error('Error clearing flag:', err);
+      }
+    }
   };
 
   const [orders, setOrders] = useState<ProcurementOrder[]>([]);
@@ -429,7 +507,8 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
           unit: editingItem.unit,
           price: editingItem.price,
           min_stock: alertLevel,
-          status: calcStatus
+          status: calcStatus,
+          item_type: editingItem.item_type || 'Stock'
         })
         .eq('id', editingItem.id);
 
@@ -549,10 +628,23 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
             </div>
             <select className="bg-white border-none rounded-lg text-xs font-bold py-2.5 px-4 focus:ring-2 focus:ring-primary/10 text-slate-700">
               <option>All Categories</option>
-              <option>Surgery</option>
-              <option>Consumables</option>
-              <option>Prosthetics</option>
+              {Array.from(new Set(items.map(i => i.category).filter(Boolean))).sort().map(cat => (
+                <option key={cat}>{cat}</option>
+              ))}
             </select>
+            {user?.role !== 'Staff' && (
+              <div className="flex bg-white rounded-lg p-1 shadow-sm border border-slate-100">
+                {(['All', 'Stock', 'Asset'] as const).map(type => (
+                  <button
+                    key={type}
+                    onClick={() => setActiveItemType(type)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${activeItemType === type ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:text-indigo-600'}`}
+                  >
+                    {type === 'All' ? 'All Types' : type}
+                  </button>
+                ))}
+              </div>
+            )}
             <button className="p-2.5 bg-white text-slate-500 rounded-lg hover:text-primary transition-colors shadow-sm">
               <Filter size={18} />
             </button>
@@ -569,17 +661,31 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                     <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Total</th>
                     <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Last Audit</th>
                     <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Status</th>
-                    {user?.role === 'Admin' && (
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Action</th>
-                    )}
+                    <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {items.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                  {items.filter(item => {
+                    const iType = item.item_type || 'Stock';
+                    if (user?.role === 'Staff' && iType === 'Asset') return false;
+                    return activeItemType === 'All' || iType === activeItemType;
+                  }).map((item) => (
+                    <tr key={item.id} className={`transition-colors ${item.is_reorder_flagged ? 'bg-orange-50/40 hover:bg-orange-50/80' : 'hover:bg-slate-50/50'}`}>
                       <td className="px-6 py-5">
                         <div className="flex flex-col">
-                          <span className="text-sm font-bold text-slate-900">{item.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
+                              (item.item_type || 'Stock') === 'Asset' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                            }`}>
+                              {item.item_type || 'Stock'}
+                            </span>
+                            <span className="text-sm font-bold text-slate-900">{item.name}</span>
+                            {item.is_reorder_flagged && (
+                              <span title={`Flagged reason: ${item.reorder_flag_remark || 'None'}`} className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[9px] font-extrabold uppercase rounded-md tracking-widest flex items-center gap-1 border border-orange-200">
+                                <AlertCircle size={10} /> Flagged Low
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] text-slate-500 uppercase">{item.subtext}</span>
                         </div>
                       </td>
@@ -596,28 +702,48 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                       <td className="px-6 py-5">
                         <StatusBadge status={item.status} />
                       </td>
-                      {user?.role === 'Admin' && (
-                        <td className="px-6 py-5">
-                          <div className="flex items-center gap-2">
-                            <button 
-                              onClick={() => handleEditItem(item)}
-                              className="text-primary hover:text-primary-container transition-colors"
-                            >
-                              <Edit3 size={18} />
-                            </button>
-                            {item.status === 'REORDER' && (
-                              <button
-                                onClick={() => prefillFromItem(item)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-600 text-[10px] font-bold rounded-full border border-amber-100 hover:bg-amber-100 transition-all"
-                                title="Create Purchase Order for this item"
+                      <td className="px-6 py-5">
+                        <div className="flex items-center gap-2">
+                          {(user?.role === 'Admin' || user?.role === 'Branch Manager') && (
+                            <>
+                              <button 
+                                onClick={() => handleEditItem(item)}
+                                className="text-primary hover:text-primary-container transition-colors"
                               >
-                                <Plus size={11} />
-                                Order
+                                <Edit3 size={18} />
                               </button>
-                            )}
-                          </div>
-                        </td>
-                      )}
+                              {item.status === 'REORDER' && (
+                                <button
+                                  onClick={() => prefillFromItem(item)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-600 text-[10px] font-bold rounded-full border border-amber-100 hover:bg-amber-100 transition-all"
+                                  title="Create Purchase Order for this item"
+                                >
+                                  <Plus size={11} />
+                                  Order
+                                </button>
+                              )}
+                            </>
+                          )}
+                          {!item.is_reorder_flagged ? (
+                            <button
+                              onClick={() => { setFlagForm({ itemId: item.id, remark: '' }); setFlaggedItemName(item.name); setFlagModalOpen(true); }}
+                              className="text-slate-400 hover:text-orange-500 transition-colors p-1"
+                              title="Flag item: Staff sees it's running out"
+                            >
+                              <AlertCircle size={18} />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleUnflag(item.id)}
+                              className="text-orange-500 hover:text-slate-400 transition-colors p-1"
+                              title={`Flagged for reorder: ${item.reorder_flag_remark || 'No remark'}. Click to resolve.`}
+                              disabled={user?.role === 'Staff'}
+                            >
+                              <AlertCircle size={18} className="fill-orange-100" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1376,64 +1502,6 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
             </motion.div>
           </div>
         )}
-      {/* ==================== SETTINGS TAB ==================== */}
-      {dashTab === 'settings' && (
-        <div className="mb-10 max-w-4xl">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-xl font-manrope font-bold text-slate-900">System Settings</h3>
-              <p className="text-xs text-slate-500">Manage branch locations and clinical addresses for POs.</p>
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-              <h4 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <Warehouse size={16} className="text-primary" /> Branch & Address Management
-              </h4>
-              <div className="grid grid-cols-1 gap-4">
-                {allBranches.map((branch) => (
-                  <div key={branch.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col md:flex-row gap-4 items-start md:items-center">
-                    <div className="flex-1">
-                      <p className="text-xs font-bold text-slate-900 mb-1">{branch.name}</p>
-                      <p className="text-[10px] text-slate-400 font-mono">{branch.id}</p>
-                    </div>
-                    <div className="flex-[3]">
-                      <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">Full Mailing Address (Separate lines by comma)</label>
-                      <input 
-                        type="text" 
-                        defaultValue={branch.address || ''} 
-                        onBlur={async (e) => {
-                          if (e.target.value !== branch.address) {
-                            try {
-                              const { error } = await supabase.from('branches').update({ address: e.target.value }).eq('id', branch.id);
-                              if (error) throw error;
-                              alert(`${branch.name} address updated!`);
-                              fetchData();
-                            } catch (err) {
-                              console.error(err);
-                              alert('Failed to update address');
-                            }
-                          }
-                        }}
-                        className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-primary/20 outline-none" 
-                        placeholder="e.g. 123, Jalan Dental, 43000 Kajang, Selangor"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 opacity-60">
-              <h4 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <Package size={16} /> Other Preferences
-              </h4>
-              <p className="text-xs text-slate-500 italic">More settings coming soon...</p>
-            </div>
-          </div>
-        </div>
-      )}
       </AnimatePresence>
 
       {/* ==================== RECORD USAGE MODAL ==================== */}
@@ -1504,6 +1572,51 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         )}
       </AnimatePresence>
 
+      {/* ==================== REQUEST REORDER FLAG MODAL ==================== */}
+      <AnimatePresence>
+        {flagModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setFlagModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm print:hidden"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col print:hidden"
+            >
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-orange-50/50">
+                <h3 className="text-sm font-bold text-orange-800 flex items-center gap-2"><AlertCircle size={16} className="text-orange-600"/> Request Reorder</h3>
+                <button type="button" onClick={() => setFlagModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-lg focus:outline-none"><Plus size={16} className="rotate-45" /></button>
+              </div>
+              <form onSubmit={handleSubmitFlag} className="p-6 space-y-5">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Item to Flag</label>
+                  <p className="text-sm font-bold text-slate-800 bg-slate-50 px-4 py-3 rounded-xl border border-slate-200">{flaggedItemName}</p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Reason / Notes (Required)</label>
+                  <textarea
+                    required
+                    value={flagForm.remark}
+                    onChange={(e) => setFlagForm({...flagForm, remark: e.target.value})}
+                    rows={3}
+                    autoFocus
+                    placeholder="e.g. The currently opened bottle is almost finished and we have very few left at the clinic."
+                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-400 transition-all resize-none shadow-sm"
+                  ></textarea>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button type="button" onClick={() => setFlagModalOpen(false)} className="flex-1 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all text-sm shadow-sm">Cancel</button>
+                  <button type="submit" className="flex-1 py-3 bg-orange-600 text-white font-bold rounded-xl shadow-lg shadow-orange-500/30 hover:opacity-90 transition-all text-sm flex justify-center items-center gap-2"><AlertCircle size={16}/> Submit Flag</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* ==================== EDIT ITEM MODAL ==================== */}
       <AnimatePresence>
         {editModalOpen && editingItem && (
@@ -1559,10 +1672,20 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                       onChange={(e) => setEditingItem({ ...editingItem, category: e.target.value })}
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary/20 outline-none"
                     >
-                      <option>Surgery</option>
-                      <option>Consumables</option>
-                      <option>Prosthetics</option>
-                      <option>Instruments</option>
+                      {Array.from(new Set(items.map(i => i.category).filter(Boolean))).sort().map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Item Type</label>
+                    <select
+                      value={editingItem.item_type || 'Stock'}
+                      onChange={(e) => setEditingItem({ ...editingItem, item_type: e.target.value as 'Stock' | 'Asset' })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary/20 outline-none"
+                    >
+                      <option value="Stock">Stock (Consumables, Merch)</option>
+                      <option value="Asset">Asset (Equipment, Computers)</option>
                     </select>
                   </div>
                   <div>
