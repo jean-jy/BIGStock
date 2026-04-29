@@ -23,125 +23,176 @@
   }
 }
 
-/* ─── Dark Mode ──────────────────────────────────────────────────── */
-/*
-  Palette:
-    page bg   : #0a0f1e  (darkest navy)
-    sidebar   : #0d1526  (sidebar nav)
-    card      : #111827  (card surface)
-    card-alt  : #161f30  (table headers, nested surfaces)
-    elevated  : #1c2a40  (hover, inputs, modals)
-    border    : rgba(148,163,184,0.10)  (subtle slate)
-    border-md : rgba(148,163,184,0.16)
-    text-1    : #f0f4ff  (primary text)
-    text-2    : #94a3b8  (secondary / muted)
-    text-3    : #4a5568  (placeholder / disabled)
-*/
+/* ─── Dark Mode — Navy Glassmorphism ─────────────────────────────── */
 
 .dark {
-  --color-surface: #0a0f1e;
-  --color-surface-container-low: #0d1526;
-  --color-surface-container-high: #1c2a40;
-  --color-on-surface-variant: #94a3b8;
+  --color-surface: #060d1f;
+  --color-surface-container-low: #0b1327;
+  --color-surface-container-high: rgba(59,130,246,0.12);
+  --color-on-surface-variant: #93afd4;
+  --color-primary: #3b82f6;
+  --color-primary-container: #2563eb;
 }
 
+/* ── Page & body ── */
 .dark body {
-  background-color: #0a0f1e;
+  background-color: #060d1f;
   color: #f0f4ff;
 }
 
-/* ── Page layout ── */
+/* ── Header: frosted glass ── */
 .dark header {
-  background-color: rgba(10, 15, 30, 0.92) !important;
-  border-bottom-color: rgba(148, 163, 184, 0.10) !important;
+  background: rgba(6, 13, 31, 0.80) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-bottom-color: rgba(255,255,255,0.08) !important;
+  box-shadow: none !important;
 }
 
-/* ── Card / panel surfaces ── */
-.dark .bg-white,
-.dark [class*="bg-white"] { background-color: #111827 !important; }
+/* ── Core surface: white cards → glassmorphic ── */
+.dark .bg-white {
+  background: rgba(255, 255, 255, 0.06) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
 
 .dark .bg-slate-50,
-.dark [class*="bg-slate-50"] { background-color: #161f30 !important; }
+.dark [class*="bg-slate-50"] {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
 
 .dark .bg-slate-100,
-.dark [class*="bg-slate-100"] { background-color: #1c2a40 !important; }
-
-.dark .bg-slate-200 { background-color: #243347 !important; }
-
-/* Table header row & alternating */
-.dark thead tr,
-.dark .border-b.bg-slate-50\/50 { background-color: #161f30 !important; }
-
-.dark tbody tr { background-color: #111827; }
-.dark tbody tr:hover { background-color: #1c2a40 !important; }
-.dark .divide-y > * { border-color: rgba(148, 163, 184, 0.08) !important; }
+.dark [class*="bg-slate-100"] {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
 
 /* ── Borders ── */
-.dark .border-slate-50  { border-color: rgba(148, 163, 184, 0.08) !important; }
-.dark .border-slate-100 { border-color: rgba(148, 163, 184, 0.10) !important; }
-.dark .border-slate-200 { border-color: rgba(148, 163, 184, 0.16) !important; }
-.dark .border-dashed    { border-color: rgba(148, 163, 184, 0.20) !important; }
+.dark .border-slate-50  { border-color: rgba(255,255,255,0.06) !important; }
+.dark .border-slate-100 { border-color: rgba(255,255,255,0.10) !important; }
+.dark .border-slate-200 { border-color: rgba(255,255,255,0.14) !important; }
+.dark .border-dashed    { border-color: rgba(255,255,255,0.16) !important; }
+.dark .divide-y > *     { border-color: rgba(255,255,255,0.06) !important; }
 
 /* ── Text ── */
 .dark .text-slate-900 { color: #f0f4ff !important; }
 .dark .text-slate-800 { color: #e2e8f0 !important; }
 .dark .text-slate-700 { color: #cbd5e1 !important; }
-.dark .text-slate-600 { color: #8898aa !important; }
-.dark .text-slate-500 { color: #64748b !important; }
+.dark .text-slate-600 { color: #93afd4 !important; }
+.dark .text-slate-500 { color: #607a96 !important; }
 .dark .text-slate-400 { color: #475569 !important; }
 
 /* ── Inputs & selects ── */
 .dark input:not([type="checkbox"]):not([type="radio"]),
 .dark select,
 .dark textarea {
-  background-color: #1c2a40 !important;
-  border-color: rgba(148, 163, 184, 0.14) !important;
+  background: rgba(255,255,255,0.07) !important;
+  border-color: rgba(255,255,255,0.12) !important;
   color: #e2e8f0 !important;
 }
 .dark input::placeholder,
-.dark textarea::placeholder { color: #4a5568 !important; }
+.dark textarea::placeholder { color: rgba(147,175,212,0.50) !important; }
 
-/* ── Category / filter pills (inactive) ── */
-.dark button.bg-white.text-slate-500 {
-  background-color: #1c2a40 !important;
-  color: #94a3b8 !important;
-  border-color: rgba(148, 163, 184, 0.14) !important;
+/* ── Table rows ── */
+.dark thead tr {
+  background: rgba(255,255,255,0.03) !important;
+  border-bottom-color: rgba(255,255,255,0.08) !important;
 }
-.dark button.bg-white.text-slate-500:hover {
-  background-color: #243347 !important;
-  color: #e2e8f0 !important;
+.dark tbody tr:hover {
+  background: rgba(59,130,246,0.07) !important;
 }
 
-/* Inactive "bg-white text-primary" outline buttons (Template, CSV) */
-.dark button.bg-white.text-primary {
-  background-color: #1c2a40 !important;
-  border-color: rgba(48, 127, 226, 0.30) !important;
-}
-.dark button.border-slate-200.text-slate-600 {
-  background-color: #1c2a40 !important;
-  color: #94a3b8 !important;
-  border-color: rgba(148, 163, 184, 0.16) !important;
-}
-
-/* Category badges in table cells */
+/* ── Category badges in table cells ── */
 .dark .bg-slate-100.text-slate-600 {
-  background-color: #1c2a40 !important;
-  color: #94a3b8 !important;
+  background: rgba(255,255,255,0.08) !important;
+  color: #93afd4 !important;
 }
 
-/* ── Modals ── */
-.dark .bg-white.rounded-2xl,
-.dark .bg-white.rounded-3xl {
-  background-color: #111827 !important;
-  border-color: rgba(148, 163, 184, 0.10) !important;
+/* ── Inactive pill buttons (category filter, type filter) ── */
+.dark button.bg-white.text-slate-500,
+.dark button.bg-white.text-primary {
+  background: rgba(255,255,255,0.06) !important;
+  color: #93afd4 !important;
+  border-color: rgba(255,255,255,0.12) !important;
+  backdrop-filter: blur(8px) !important;
 }
-.dark .shadow-2xl { box-shadow: 0 25px 60px -12px rgba(0,0,0,0.7) !important; }
+.dark button.bg-white.text-slate-500:hover,
+.dark button.bg-white.text-primary:hover {
+  background: rgba(59,130,246,0.15) !important;
+  color: #f0f4ff !important;
+  border-color: rgba(59,130,246,0.35) !important;
+}
 
-/* ── Nav sidebar items (hover state) ── */
-.dark .hover\:bg-white:hover { background-color: #1c2a40 !important; }
+/* Outline/ghost action buttons (Template, CSV Import) */
+.dark button.border-slate-200.text-slate-600 {
+  background: rgba(255,255,255,0.05) !important;
+  color: #93afd4 !important;
+  border-color: rgba(255,255,255,0.12) !important;
+}
 
-/* ── Scrollbar (optional subtle styling) ── */
-.dark ::-webkit-scrollbar { width: 6px; height: 6px; }
-.dark ::-webkit-scrollbar-track { background: #0a0f1e; }
-.dark ::-webkit-scrollbar-thumb { background: #1c2a40; border-radius: 3px; }
-.dark ::-webkit-scrollbar-thumb:hover { background: #243347; }
+/* ── Modal overlay ── */
+.dark .bg-slate-900\/40 { background-color: rgba(6,13,31,0.75) !important; }
+
+/* ── Modal / alert glass backgrounds ── */
+.dark .bg-red-50    { background: rgba(239,68,68,0.10) !important; }
+.dark .bg-amber-50  { background: rgba(245,158,11,0.10) !important; }
+.dark .bg-green-50  { background: rgba(34,197,94,0.10) !important; }
+.dark .bg-blue-50   { background: rgba(59,130,246,0.10) !important; }
+.dark .bg-orange-50 { background: rgba(249,115,22,0.10) !important; }
+.dark .bg-indigo-50 { background: rgba(99,102,241,0.10) !important; }
+
+.dark .border-red-100    { border-color: rgba(239,68,68,0.25) !important; }
+.dark .border-amber-100  { border-color: rgba(245,158,11,0.25) !important; }
+.dark .border-green-100  { border-color: rgba(34,197,94,0.25) !important; }
+.dark .border-blue-100   { border-color: rgba(59,130,246,0.25) !important; }
+.dark .border-orange-100 { border-color: rgba(249,115,22,0.25) !important; }
+.dark .border-indigo-100 { border-color: rgba(99,102,241,0.25) !important; }
+
+.dark .text-red-600,
+.dark .text-red-700    { color: #f87171 !important; }
+.dark .text-green-600,
+.dark .text-green-700  { color: #4ade80 !important; }
+.dark .text-blue-700   { color: #93c5fd !important; }
+.dark .text-amber-600  { color: #fbbf24 !important; }
+.dark .text-orange-700 { color: #fb923c !important; }
+.dark .text-indigo-700 { color: #a5b4fc !important; }
+
+/* ── Stock In green action button ── */
+.dark .bg-green-50.text-green-600 {
+  background: rgba(34,197,94,0.12) !important;
+  color: #4ade80 !important;
+  border-color: rgba(34,197,94,0.25) !important;
+}
+.dark .bg-green-50.text-green-600:hover {
+  background: rgba(34,197,94,0.22) !important;
+}
+
+/* ── Item type badges (Stock/Asset) ── */
+.dark .bg-emerald-50.text-emerald-600 {
+  background: rgba(16,185,129,0.12) !important;
+  color: #6ee7b7 !important;
+  border-color: rgba(16,185,129,0.25) !important;
+}
+.dark .bg-indigo-50.text-indigo-600 {
+  background: rgba(99,102,241,0.12) !important;
+  color: #c7d2fe !important;
+  border-color: rgba(99,102,241,0.25) !important;
+}
+
+/* ── Sidebar active item ── */
+.dark .bg-white.text-primary.shadow-sm {
+  background: rgba(59,130,246,0.15) !important;
+  border: 1px solid rgba(59,130,246,0.30) !important;
+  box-shadow: 0 0 12px rgba(59,130,246,0.20) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+/* ── Shadows ── */
+.dark .shadow-sm  { box-shadow: 0 1px 3px rgba(0,0,0,0.40) !important; }
+.dark .shadow-2xl { box-shadow: 0 40px 80px rgba(0,0,0,0.65) !important; }
+.dark .shadow-xl  { box-shadow: 0 20px 40px rgba(0,0,0,0.55) !important; }
+
+/* ── Scrollbar ── */
+.dark ::-webkit-scrollbar { width: 5px; height: 5px; }
+.dark ::-webkit-scrollbar-track { background: #060d1f; }
+.dark ::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.25); border-radius: 3px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: rgba(59,130,246,0.40); }

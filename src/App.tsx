@@ -121,7 +121,14 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-surface">
+    <div className="min-h-screen flex flex-col bg-surface relative">
+      {darkMode && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-0"
+          style={{ background: 'radial-gradient(ellipse 90% 60% at 50% -5%, rgba(59,130,246,0.20) 0%, rgba(99,60,220,0.12) 45%, transparent 72%)' }}
+        />
+      )}
       {/* Top Navigation */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-100 px-8 py-4 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-8">
