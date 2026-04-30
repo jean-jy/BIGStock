@@ -544,16 +544,17 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
           <h1 className="text-2xl md:text-4xl font-manrope font-extrabold text-slate-900 tracking-tight">{activeBranch === 'Main Branch' ? 'Main Master Sheet' : `${activeBranch} Branch`}</h1>
           <p className="text-slate-500 font-inter text-sm mt-1">{activeBranch === 'Main Branch' ? 'Consolidated stock across all branches.' : `Viewing stock levels for ${activeBranch} branch.`}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 md:gap-3">
+        {/* Desktop action row */}
+        <div className="hidden md:flex flex-wrap items-center gap-2 md:gap-3">
           {(user?.role === 'Admin' || user?.role === 'Branch Manager') && (
             <div className="flex items-center bg-surface-container-low p-1 rounded-lg">
-              <button 
+              <button
                 onClick={() => setViewType('consolidated')}
                 className={`px-4 py-2 rounded-md text-xs font-bold transition-all ${viewType === 'consolidated' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-primary'}`}
               >
                 Consolidated
               </button>
-              <button 
+              <button
                 onClick={() => setViewType('branch')}
                 className={`px-4 py-2 rounded-md text-xs font-bold transition-all ${viewType === 'branch' ? 'bg-white shadow-sm text-primary' : 'text-slate-500 hover:text-primary'}`}
               >
@@ -579,6 +580,44 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
             <Download size={16} />
             Export CSV
           </button>
+        </div>
+        {/* Mobile action row */}
+        <div className="flex flex-col gap-2 md:hidden w-full">
+          {(user?.role === 'Admin' || user?.role === 'Branch Manager') && (
+            <div className="flex items-center bg-surface-container-low p-1 rounded-lg">
+              <button
+                onClick={() => setViewType('consolidated')}
+                className={`flex-1 py-2 rounded-md text-xs font-bold transition-all ${viewType === 'consolidated' ? 'bg-white shadow-sm text-primary' : 'text-slate-500'}`}
+              >
+                Consolidated
+              </button>
+              <button
+                onClick={() => setViewType('branch')}
+                className={`flex-1 py-2 rounded-md text-xs font-bold transition-all ${viewType === 'branch' ? 'bg-white shadow-sm text-primary' : 'text-slate-500'}`}
+              >
+                By Branch
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setUsageModalOpen(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-r from-teal-500 to-emerald-500 text-white text-xs font-bold rounded-md active:scale-95"
+            >
+              <MinusCircle size={14} />
+              Log Usage
+            </button>
+            <button
+              onClick={onStartAudit}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-primary-container text-white text-xs font-bold rounded-md active:scale-95"
+            >
+              <FileCheck size={14} />
+              New Audit
+            </button>
+            <button className="w-10 h-10 flex items-center justify-center border border-slate-200 text-slate-600 rounded-md shrink-0">
+              <Download size={16} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -617,7 +656,8 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       {/* ==================== ACTIVE INVENTORY TAB ==================== */}
       {dashTab === 'inventory' && (
         <>
-          <div className="bg-surface-container-low rounded-xl p-4 mb-6 flex flex-wrap items-center gap-4">
+          {/* Desktop search/filter bar */}
+          <div className="hidden md:flex bg-surface-container-low rounded-xl p-4 mb-6 flex-wrap items-center gap-4">
             <div className="flex-1 min-w-[300px] relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input
@@ -649,8 +689,108 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
               <Filter size={18} />
             </button>
           </div>
+          {/* Mobile search/filter bar */}
+          <div className="flex flex-col gap-3 md:hidden bg-surface-container-low rounded-xl p-3 mb-6">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                className="w-full pl-9 pr-4 py-2.5 bg-white border-none rounded-lg text-sm focus:ring-2 focus:ring-primary/10 transition-all placeholder:text-slate-300"
+                placeholder="Search item name or SKU..."
+                type="text"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <select className="flex-1 bg-white border-none rounded-lg text-xs font-bold py-2 px-3 focus:ring-2 focus:ring-primary/10 text-slate-700 min-w-0">
+                <option>All Categories</option>
+                {Array.from(new Set(items.map(i => i.category).filter(Boolean))).sort().map(cat => (
+                  <option key={cat}>{cat}</option>
+                ))}
+              </select>
+              {user?.role !== 'Staff' && (
+                <div className="flex bg-white rounded-lg p-0.5 shadow-sm border border-slate-100 shrink-0">
+                  {(['All', 'Stock', 'Asset'] as const).map(type => (
+                    <button
+                      key={type}
+                      onClick={() => setActiveItemType(type)}
+                      className={`px-2.5 py-1.5 text-[10px] font-bold rounded-md transition-all ${activeItemType === type ? 'bg-indigo-50 text-indigo-700' : 'text-slate-400 hover:text-indigo-600'}`}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
 
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100 mb-10">
+          {/* Mobile inventory card list */}
+          <div className="flex flex-col gap-3 mb-10 md:hidden">
+            {items.filter(item => {
+              const iType = item.item_type || 'Stock';
+              if (user?.role === 'Staff' && iType === 'Asset') return false;
+              return activeItemType === 'All' || iType === activeItemType;
+            }).map((item) => {
+              const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id] || 0);
+              const isCritical = qty < (item.min_stock || 20);
+              return (
+                <div key={item.id} className={`bg-white rounded-xl border shadow-sm p-4 ${item.is_reorder_flagged ? 'border-orange-200 bg-orange-50/30' : 'border-slate-100'}`}>
+                  <div className="flex items-start gap-2 mb-2">
+                    <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${(item.item_type || 'Stock') === 'Asset' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+                      {item.item_type || 'Stock'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-900 leading-tight">{item.name}</p>
+                      {item.subtext && <p className="text-[10px] text-slate-400 uppercase mt-0.5">{item.subtext}</p>}
+                    </div>
+                    {item.is_reorder_flagged && (
+                      <span className="shrink-0 px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[9px] font-extrabold uppercase rounded-md border border-orange-200 flex items-center gap-1">
+                        <AlertCircle size={9} /> Low
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase">{item.category}</span>
+                    <span className="text-[10px] font-mono text-slate-400">{item.sku}</span>
+                  </div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-[9px] text-slate-400 uppercase font-bold tracking-widest mb-0.5">Qty</p>
+                      <p className={`text-base font-extrabold font-manrope ${isCritical ? 'text-tertiary' : 'text-slate-900'}`}>{qty.toLocaleString()}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] text-slate-400 uppercase font-bold tracking-widest mb-0.5">Last Audit</p>
+                      <p className="text-xs text-slate-500">{item.lastAudit}</p>
+                    </div>
+                    <StatusBadge status={item.status} />
+                  </div>
+                  {(user?.role === 'Admin' || user?.role === 'Branch Manager') && (
+                    <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
+                      <button onClick={() => handleEditItem(item)} className="flex items-center gap-1 px-3 py-1.5 bg-primary/5 text-primary text-xs font-bold rounded-lg">
+                        <Edit3 size={13} /> Edit
+                      </button>
+                      {item.status === 'REORDER' && (
+                        <button onClick={() => prefillFromItem(item)} className="flex items-center gap-1 px-3 py-1.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-lg border border-amber-100">
+                          <Plus size={13} /> Order
+                        </button>
+                      )}
+                      {!item.is_reorder_flagged ? (
+                        <button onClick={() => { setFlagForm({ itemId: item.id, remark: '' }); setFlaggedItemName(item.name); setFlagModalOpen(true); }} className="ml-auto p-2 text-slate-400 hover:text-orange-500 rounded-lg transition-colors">
+                          <AlertCircle size={16} />
+                        </button>
+                      ) : (
+                        <button onClick={() => handleUnflag(item.id)} disabled={user?.role === 'Staff'} className="ml-auto p-2 text-orange-500 rounded-lg">
+                          <AlertCircle size={16} className="fill-orange-100" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <p className="text-center text-xs text-slate-400 font-bold py-2">{items.length.toLocaleString()} items total</p>
+          </div>
+
+          {/* Desktop inventory table */}
+          <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100 mb-10">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -767,7 +907,93 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
               Schedule New Audit
             </button>
           </div>
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100">
+          {/* Mobile audit card list */}
+          <div className="flex flex-col gap-3 mb-6 md:hidden">
+            {auditLogs.map((log) => (
+              <div key={log.id} className={`bg-white rounded-xl border shadow-sm overflow-hidden ${log.isRecent ? 'border-primary/20' : 'border-slate-100'}`}>
+                <button
+                  className="w-full text-left p-4"
+                  onClick={() => (log.mismatchedItems || log.approvalStatus === 'PENDING') && setExpandedAuditId(expandedAuditId === log.id ? null : log.id)}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      {log.isRecent && <p className="text-[9px] text-primary font-bold uppercase tracking-tighter mb-1">Recently Completed</p>}
+                      <p className="text-sm font-bold text-slate-900">{log.date}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{log.branch}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <StatusBadge status={log.status} />
+                      {(log.mismatchedItems || log.approvalStatus === 'PENDING') && (expandedAuditId === log.id ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />)}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <img src={log.auditorAvatar} alt={log.auditor} className="w-6 h-6 rounded-full object-cover shrink-0" />
+                    <span className="text-xs font-medium text-slate-700 flex-1">{log.auditor}</span>
+                    <span className="text-xs font-bold text-primary">{log.itemsChecked} items</span>
+                  </div>
+                  <div>
+                    {log.approvalStatus === 'PENDING'
+                      ? <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-bold rounded-full border border-amber-100">Pending Approval</span>
+                      : <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-bold rounded-full border border-emerald-100">Approved</span>}
+                  </div>
+                </button>
+                {expandedAuditId === log.id && (
+                  <div className="border-t border-slate-100 p-4 bg-slate-50/50">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1"><AlertCircle size={10} className="text-tertiary" /> Discrepancy Details</p>
+                    {!log.mismatchedItems && (
+                      <div className="px-3 py-2.5 mb-3 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-700 font-semibold">
+                        Detailed mismatch breakdown was not recorded for this audit. You can still approve to accept the submitted counts.
+                      </div>
+                    )}
+                    <div className="space-y-3 mb-4">
+                      {(log.mismatchedItems || []).map((item, idx) => {
+                        const diff = item.actual - item.expected;
+                        return (
+                          <div key={idx} className="bg-white rounded-xl border border-slate-100 p-3">
+                            <div className="flex items-start justify-between mb-2">
+                              <div>
+                                <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                                <p className="text-[10px] font-mono text-slate-400">{item.sku}</p>
+                              </div>
+                              <span className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : 'text-tertiary'}`}>{diff > 0 ? `+${diff}` : diff}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div className="bg-slate-50 rounded-lg p-2">
+                                <p className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">System</p>
+                                <p className="font-bold">{item.expected}</p>
+                              </div>
+                              <div className="bg-slate-50 rounded-lg p-2">
+                                <p className="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Audited</p>
+                                <p className="font-bold">{item.actual}</p>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mb-3">
+                      {log.approvalStatus === 'APPROVED' ? (
+                        <p className="flex items-center gap-1 text-emerald-600 font-bold"><CheckCircle2 size={12} /> Approved by {log.approvedByName}</p>
+                      ) : (
+                        <p>Awaiting management review and system sync.</p>
+                      )}
+                    </div>
+                    {(user?.role === 'Admin' || user?.role === 'Branch Manager') && log.approvalStatus === 'PENDING' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleApproveAudit(log); }}
+                        className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-500 text-white text-xs font-bold rounded-xl active:scale-95"
+                      >
+                        <CheckCircle2 size={14} /> Approve & Update Stock
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop audit table */}
+          <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50/50 border-b border-slate-100">
@@ -782,8 +1008,8 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                 {auditLogs.map((log) => (
                   <React.Fragment key={log.id}>
                     <tr
-                      className={`${log.isRecent ? 'bg-primary/5' : ''} hover:bg-slate-50/50 transition-colors ${log.mismatchedItems ? 'cursor-pointer' : ''}`}
-                      onClick={() => log.mismatchedItems && setExpandedAuditId(expandedAuditId === log.id ? null : log.id)}
+                      className={`${log.isRecent ? 'bg-primary/5' : ''} hover:bg-slate-50/50 transition-colors ${(log.mismatchedItems || log.approvalStatus === 'PENDING') ? 'cursor-pointer' : ''}`}
+                      onClick={() => (log.mismatchedItems || log.approvalStatus === 'PENDING') && setExpandedAuditId(expandedAuditId === log.id ? null : log.id)}
                     >
                       <td className="px-6 py-5">
                         <div className="flex flex-col">
@@ -807,7 +1033,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                           ) : (
                             <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-bold rounded-full border border-emerald-100 uppercase tracking-tighter">Approved</span>
                           )}
-                          {log.mismatchedItems && (
+                          {(log.mismatchedItems || log.approvalStatus === 'PENDING') && (
                             <button className="text-slate-400 hover:text-primary transition-colors flex shrink-0">
                               {expandedAuditId === log.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                             </button>
@@ -815,7 +1041,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                         </div>
                       </td>
                     </tr>
-                    {expandedAuditId === log.id && log.mismatchedItems && (
+                    {expandedAuditId === log.id && (
                       <tr className="bg-slate-50 border-t border-slate-100/50">
                         <td colSpan={5} className="px-6 py-4">
                           <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4 animate-in fade-in slide-in-from-top-2 duration-200">
@@ -823,8 +1049,13 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                               <AlertCircle size={12} className="text-tertiary" />
                               Discrepancy Details
                             </h4>
+                            {!log.mismatchedItems && (
+                              <div className="px-4 py-3 mb-3 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-700 font-semibold">
+                                Detailed mismatch breakdown was not recorded for this audit. You can still approve to accept the submitted counts.
+                              </div>
+                            )}
                             <div className="space-y-3">
-                              {log.mismatchedItems.map((item, idx) => {
+                              {(log.mismatchedItems || []).map((item, idx) => {
                                 const diff = item.actual - item.expected;
                                 return (
                                   <div key={idx} className="flex items-center justify-between px-4 py-3 rounded-xl border border-slate-100/60 bg-slate-50/50">
@@ -927,7 +1158,115 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
             </button>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100 mb-10">
+          {/* Mobile procurement card list */}
+          <div className="flex flex-col gap-3 mb-10 md:hidden">
+            {orders.map((o) => (
+              <div key={o.id} className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+                <button className="w-full text-left p-4" onClick={() => setExpandedPO(expandedPO === o.id ? null : o.id)}>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <p className="text-sm font-bold text-primary font-mono">{o.poNumber}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{o.createdAt}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${poStatusStyles[o.status]}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${poStatusDots[o.status]}`}></span>
+                        {o.status}
+                      </span>
+                      {expandedPO === o.id ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-600 font-medium mb-2">{o.supplier}</p>
+                  <div className="flex items-center gap-3 text-xs flex-wrap">
+                    <span className="font-bold text-slate-900">{o.items.length} {o.items.length === 1 ? 'item' : 'items'}</span>
+                    <span className="text-slate-300">•</span>
+                    <span className="font-bold text-primary">RM{o.totalCost.toLocaleString('en-MY', { minimumFractionDigits: 2 })}</span>
+                    {o.expectedDelivery && (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-slate-500">{new Date(o.expectedDelivery).toLocaleDateString('en-MY', { day: 'numeric', month: 'short' })}</span>
+                      </>
+                    )}
+                  </div>
+                  {o.status === 'RECEIVED' && o.paymentStatus && (
+                    <div className="mt-2">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border ${paymentStatusStyles[o.paymentStatus]}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${paymentStatusDots[o.paymentStatus]}`}></span>
+                        {paymentStatusLabels[o.paymentStatus]}
+                      </span>
+                    </div>
+                  )}
+                </button>
+                {expandedPO === o.id && (
+                  <div className="border-t border-slate-100 px-4 pt-3 pb-2 bg-slate-50/50">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-2">Line Items</p>
+                    <div className="space-y-2 mb-3">
+                      {o.items.map((line, li) => (
+                        <div key={li} className="flex items-center justify-between text-xs bg-white rounded-lg px-3 py-2 border border-slate-100">
+                          <div>
+                            <p className="font-bold text-slate-800">{line.itemName}</p>
+                            <p className="text-[10px] font-mono text-slate-400">{line.sku}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] text-slate-400">{line.quantity} × RM{line.unitPrice.toFixed(2)}</p>
+                            <p className="font-bold text-primary">RM{(line.quantity * line.unitPrice).toFixed(2)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {o.notes && <p className="text-[10px] text-slate-500 mb-3"><span className="font-bold">Notes:</span> {o.notes}</p>}
+                  </div>
+                )}
+                <div className="px-4 pb-4 flex flex-wrap items-center gap-2" onClick={e => e.stopPropagation()}>
+                  {o.status === 'DRAFT' && (
+                    <>
+                      <button onClick={() => updatePOStatus(o.id, 'SUBMITTED')} className="flex-1 flex items-center justify-center gap-1 py-2 bg-amber-50 text-amber-600 text-xs font-bold rounded-lg border border-amber-100 active:scale-95">
+                        <CloudUpload size={13} /> Submit
+                      </button>
+                      <button onClick={() => handleEditPO(o)} className="p-2 text-slate-400 border border-slate-200 rounded-lg">
+                        <Pencil size={14} />
+                      </button>
+                    </>
+                  )}
+                  {o.status === 'SUBMITTED' && (
+                    <button onClick={() => handleGoodsReceived(o)} className="flex-1 flex items-center justify-center gap-1 py-2 bg-green-500 text-white text-xs font-bold rounded-lg active:scale-95">
+                      <CheckCircle2 size={13} /> Goods Received
+                    </button>
+                  )}
+                  {o.status === 'RECEIVED' && o.paymentStatus !== 'PAID' && (
+                    <>
+                      {(!o.paymentStatus || o.paymentStatus === 'UNPAID') && (
+                        <button onClick={() => updatePaymentStatus(o.id, 'PAYMENT_SUBMITTED')} className="flex-1 flex items-center justify-center gap-1 py-2 bg-amber-50 text-amber-600 text-xs font-bold rounded-lg border border-amber-100 active:scale-95">
+                          <Receipt size={13} /> Payment Submitted
+                        </button>
+                      )}
+                      <button onClick={() => updatePaymentStatus(o.id, 'PAID')} className="flex-1 flex items-center justify-center gap-1 py-2 bg-emerald-50 text-emerald-600 text-xs font-bold rounded-lg border border-emerald-100 active:scale-95">
+                        <CheckCircle2 size={13} /> Mark Paid
+                      </button>
+                    </>
+                  )}
+                  {(o.status === 'SUBMITTED' || o.status === 'RECEIVED') && (
+                    <button onClick={() => setPrintPOId(o.id)} className="p-2 text-slate-600 border border-slate-200 rounded-lg">
+                      <Download size={14} />
+                    </button>
+                  )}
+                  <button onClick={() => deletePO(o.id)} className="p-2 text-slate-400 border border-slate-200 rounded-lg ml-auto">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {orders.length === 0 && (
+              <div className="text-center py-16 text-slate-400">
+                <Package size={40} className="mx-auto mb-3 text-slate-200" />
+                <p className="text-sm font-bold">No procurement orders yet</p>
+                <p className="text-xs mt-1">Create your first purchase order to start tracking.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Desktop procurement table */}
+          <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100 mb-10">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -1152,7 +1491,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       )}
 
       {/* FAB */}
-      <div className="fixed bottom-8 right-8 z-50 flex flex-col gap-4">
+      <div className="fixed bottom-24 right-4 lg:bottom-8 lg:right-8 z-50 flex flex-col gap-4">
         <button
           onClick={onStartAudit}
           className="w-12 h-12 bg-white text-primary rounded-full shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all group relative border border-slate-100"
@@ -1326,7 +1665,35 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
               Export Log
             </button>
           </div>
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100">
+          {/* Mobile transaction card list */}
+          <div className="flex flex-col gap-3 mb-6 md:hidden">
+            {transactions.map((tx) => (
+              <div key={tx.id} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold uppercase rounded-md ${tx.type === 'STOCK_IN' ? 'bg-green-50 text-green-700' : tx.type === 'TRANSFER' ? 'bg-blue-50 text-blue-700' : tx.type === 'USAGE' ? 'bg-orange-50 text-orange-700' : 'bg-slate-100 text-slate-700'}`}>
+                    {tx.type === 'STOCK_IN' && <Package size={10} />}
+                    {tx.type === 'TRANSFER' && <ArrowRightLeft size={10} />}
+                    {tx.type === 'USAGE' && <MinusCircle size={10} />}
+                    {tx.type.replace('_', ' ')}
+                  </span>
+                  <span className="text-[10px] text-slate-400 shrink-0">{new Date(tx.created_at).toLocaleDateString()}</span>
+                </div>
+                <p className="text-sm font-bold text-slate-900 mb-1">{tx.item_name}</p>
+                <div className="flex items-center justify-between">
+                  <span className={`text-sm font-extrabold ${tx.type === 'STOCK_IN' ? 'text-green-600' : tx.type === 'USAGE' ? 'text-orange-600' : 'text-blue-600'}`}>
+                    {tx.type === 'USAGE' ? '−' : '+'}{tx.quantity} {tx.unit}
+                  </span>
+                  <span className="text-[10px] text-slate-400 text-right leading-snug">
+                    {tx.from_location}{tx.to_location ? ` → ${tx.to_location}` : ''}
+                  </span>
+                </div>
+              </div>
+            ))}
+            {transactions.length === 0 && <p className="text-center text-slate-400 text-sm italic py-8">No recent transactions recorded.</p>}
+          </div>
+
+          {/* Desktop transaction table */}
+          <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden border border-slate-100">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50/50 border-b border-slate-100">

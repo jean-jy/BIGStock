@@ -521,7 +521,64 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
         )}
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden overflow-x-auto">
+      {/* Mobile inventory card list */}
+      <div className="flex flex-col gap-3 mb-8 md:hidden">
+        {items.filter(i => {
+          const itemType = i.item_type || 'Stock';
+          if (activeType !== 'All' && itemType !== activeType) return false;
+          const matchesCategory = activeCategory === 'All' || i.category === activeCategory;
+          if (!matchesCategory) return false;
+          if (!searchQuery.trim()) return true;
+          const q = searchQuery.toLowerCase();
+          return (
+            i.name.toLowerCase().includes(q) ||
+            (i.subtext || '').toLowerCase().includes(q) ||
+            (i.category || '').toLowerCase().includes(q) ||
+            (i.sku || '').toLowerCase().includes(q)
+          );
+        }).map((item) => (
+          <div key={item.id} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+            <div className="flex items-start gap-2 mb-2">
+              <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${(item.item_type || 'Stock') === 'Asset' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+                {item.item_type || 'Stock'}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-slate-900 leading-tight">{item.name}</p>
+                {item.subtext && <p className="text-[10px] text-slate-400 uppercase mt-0.5">{item.subtext}</p>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase">{item.category}</span>
+              <span className="text-[10px] font-mono text-slate-400">{item.sku}</span>
+            </div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-[9px] text-slate-400 uppercase font-bold tracking-widest mb-0.5">Unit Price</p>
+                <p className="text-sm font-bold text-slate-900">RM {item.price?.toFixed(2) || '0.00'}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[9px] text-slate-400 uppercase font-bold tracking-widest mb-0.5">Stock</p>
+                <p className="text-sm font-bold text-slate-700">{item.total} <span className="text-[10px] text-slate-400 font-normal uppercase">{item.unit}</span></p>
+              </div>
+              <StatusBadge status={item.status} />
+            </div>
+            <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
+              <button onClick={() => openStockInModal(item)} className="flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-600 text-xs font-bold rounded-lg border border-green-100 active:scale-95">
+                <Download size={13} /> Stock In
+              </button>
+              <button onClick={() => openEditModal(item)} className="flex items-center gap-1 px-3 py-1.5 bg-primary/5 text-primary text-xs font-bold rounded-lg">
+                <Pencil size={13} /> Edit
+              </button>
+              <button onClick={() => handleDeleteItem(item.id)} className="ml-auto p-2 text-slate-400 hover:text-tertiary rounded-lg transition-colors">
+                <Trash2 size={16} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop inventory table */}
+      <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden overflow-x-auto">
         <table className="w-full text-left border-collapse min-w-[640px]">
           <thead>
             <tr className="bg-slate-50/50 border-b border-slate-100">
@@ -887,7 +944,26 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
             <History size={16} className="text-green-600" />
             Recent Stock-In Records
           </h3>
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden overflow-x-auto">
+          {/* Mobile stock-in history cards */}
+          <div className="flex flex-col gap-2 md:hidden">
+            {stockInHistory.map(record => (
+              <div key={record.id} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <p className="text-sm font-bold text-slate-900">{record.itemName}</p>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-full shrink-0">+{record.quantity}</span>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-slate-500">
+                  <span>{record.date}</span>
+                  {record.supplierName && <span className="font-medium">{record.supplierName}</span>}
+                  {record.invoiceNo && <span className="font-mono">{record.invoiceNo}</span>}
+                </div>
+                {record.notes && <p className="text-[10px] text-slate-400 mt-1">{record.notes}</p>}
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop stock-in history table */}
+          <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[500px]">
               <thead>
                 <tr className="bg-slate-50/50 border-b border-slate-100">
