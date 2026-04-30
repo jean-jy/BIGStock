@@ -195,3 +195,46 @@
 .dark ::-webkit-scrollbar-track { background: #060d1f; }
 .dark ::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.25); border-radius: 3px; }
 .dark ::-webkit-scrollbar-thumb:hover { background: rgba(59,130,246,0.40); }
+
+/* ─── Mobile / Responsive ────────────────────────────────────────── */
+
+/* Safe area bottom padding for iPhone home indicator */
+.safe-area-pb {
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+/* Horizontal scroll for all data tables on small screens */
+@media (max-width: 768px) {
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  /* Card-level overflow scroll containers */
+  .mobile-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Tighter heading sizes on mobile */
+  .text-3xl { font-size: 1.5rem !important; }
+  .text-2xl { font-size: 1.25rem !important; }
+
+  /* Ensure tap targets are at least 44px */
+  button, [role="button"] {
+    min-height: 36px;
+  }
+}
+
+/* Dark mode bottom nav glass */
+.dark nav.fixed.bottom-0 {
+  background: rgba(6,13,31,0.92) !important;
+  border-top-color: rgba(255,255,255,0.08) !important;
+}
+
+/* Dark mode sheet */
+.dark .bg-white.rounded-t-3xl {
+  background: #0b1327 !important;
+}

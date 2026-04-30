@@ -538,13 +538,13 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       className="max-w-6xl mx-auto"
     >
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
         <div>
           <span className="text-primary font-bold text-xs uppercase tracking-widest mb-2 block">Stock Overview — {activeBranch}</span>
-          <h1 className="text-4xl font-manrope font-extrabold text-slate-900 tracking-tight">{activeBranch === 'Main Branch' ? 'Main Master Sheet' : `${activeBranch} Branch`}</h1>
+          <h1 className="text-2xl md:text-4xl font-manrope font-extrabold text-slate-900 tracking-tight">{activeBranch === 'Main Branch' ? 'Main Master Sheet' : `${activeBranch} Branch`}</h1>
           <p className="text-slate-500 font-inter text-sm mt-1">{activeBranch === 'Main Branch' ? 'Consolidated stock across all branches.' : `Viewing stock levels for ${activeBranch} branch.`}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
           {(user?.role === 'Admin' || user?.role === 'Branch Manager') && (
             <div className="flex items-center bg-surface-container-low p-1 rounded-lg">
               <button 
@@ -583,7 +583,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-8">
         <StatsCard label="Total SKUs" value={`${totalSKUs.toLocaleString()}`} subtext="Available in catalog" borderVariant="primary" />
         <StatsCard label="Critical Low Stock" value={`${criticalStock} Items`} subtext="Requires attention" borderVariant="tertiary" />
         <StatsCard label="In Transit" value="156 Units" subtext="Pending Delivery" borderVariant="secondary" />
@@ -591,7 +591,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-8 border-b border-slate-100 mb-6">
+      <div className="flex gap-6 md:gap-8 border-b border-slate-100 mb-6 overflow-x-auto pb-px scrollbar-hide">
         <button
           onClick={() => setDashTab('inventory')}
           className={`pb-4 text-sm font-bold transition-colors ${dashTab === 'inventory' ? 'text-primary border-b-2 border-primary' : 'text-slate-500 hover:text-primary'}`}
