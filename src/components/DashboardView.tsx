@@ -401,43 +401,57 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       const { data: { session } } = await supabase.auth.getSession();
       const approverName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Admin';
 
-      // 1. Update inventory for each mismatch
-      if (log.mismatchedItems && log.mismatchedItems.length > 0) {
-        for (const item of log.mismatchedItems) {
-          if (item.id) {
-            const newTotal = item.actual;
-            const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
-            
-            await supabase.from('inventory').update({ 
-              total: newTotal, 
-              status, 
-              last_audit: new Date().toISOString() 
-            }).eq('id', item.id);
+      // 1. Use in-memory mismatches if available, otherwise fetch from DB
+      let mismatches = log.mismatchedItems;
+      if (!mismatches || mismatches.length === 0) {
+        const { data: rows } = await supabase
+          .from('audit_mismatches')
+          .select('*')
+          .eq('audit_log_id', log.id);
+        mismatches = (rows || []).map((m: any) => ({
+          id: m.item_id,
+          name: m.name,
+          sku: m.sku,
+          expected: m.expected,
+          actual: m.actual,
+          remark: m.remark
+        }));
+      }
 
-            // Record adjustment transaction
-            await supabase.from('inventory_transactions').insert({
-              type: 'ADJUSTMENT',
-              item_id: item.id,
-              item_name: item.name,
-              quantity: item.actual - item.expected,
-              unit: 'Units',
-              from_location: 'Stock Audit',
-              to_location: log.branch,
-              remarks: `Direct adjustment from audit approval by ${approverName}`,
-              performed_by: session?.user?.id
-            });
-          }
+      // 2. Update inventory for each mismatch
+      for (const item of mismatches) {
+        if (item.id) {
+          const newTotal = item.actual;
+          const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
+
+          await supabase.from('inventory').update({
+            total: newTotal,
+            status,
+            last_audit: new Date().toISOString()
+          }).eq('id', item.id);
+
+          await supabase.from('inventory_transactions').insert({
+            type: 'ADJUSTMENT',
+            item_id: item.id,
+            item_name: item.name,
+            quantity: item.actual - item.expected,
+            unit: 'Units',
+            from_location: 'Stock Audit',
+            to_location: log.branch,
+            remarks: `Direct adjustment from audit approval by ${approverName}`,
+            performed_by: session?.user?.id
+          });
         }
       }
 
-      // 2. Update audit log status
+      // 3. Update audit log status
       await supabase.from('audit_logs').update({
         approval_status: 'APPROVED',
         approved_by_name: approverName,
         approved_at: new Date().toISOString()
       }).eq('id', log.id);
 
-      alert('Audit approved and system stock updated!');
+      alert(`Audit approved and ${mismatches.length} item(s) updated!`);
       fetchData();
     } catch (err) {
       console.error('Error approving audit:', err);
