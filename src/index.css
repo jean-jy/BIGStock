@@ -15,8 +15,14 @@
 }
 
 @layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply font-inter bg-surface text-slate-900;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
   }
   h1, h2, h3, h4, h5, h6 {
     @apply font-manrope;
