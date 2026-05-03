@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, AlertCircle, ArrowLeft, Calendar, CheckCircle2, CloudUpload, Search, Plus, Minus } from 'lucide-react';
+import { Package, AlertCircle, ArrowLeft, Calendar, CheckCircle2, CloudUpload, Search, Plus, Minus, ShoppingCart } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 
@@ -29,6 +29,9 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
   const [auditNotes, setAuditNotes] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [restockFlags, setRestockFlags] = useState<Record<string, boolean>>({});
+
+  const toggleRestock = (id: string) => setRestockFlags(prev => ({ ...prev, [id]: !prev[id] }));
 
   const isAdmin = user?.role === 'Admin';
 
@@ -136,6 +139,14 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
         await supabase.from('audit_mismatches').insert(
           mismatches.map(m => ({ audit_log_id: auditLog.id, item_id: m.id, name: m.name, sku: m.sku, expected: m.expected, actual: m.actual, remark: m.remark }))
         );
+      }
+
+      // Flag items marked for restock
+      const restockItemIds = Object.entries(restockFlags).filter(([, v]) => v).map(([id]) => id);
+      if (restockItemIds.length > 0) {
+        await supabase.from('inventory')
+          .update({ is_reorder_flagged: true, reorder_flag_remark: `Urgent restock flagged during audit by ${auditorName}` })
+          .in('id', restockItemIds);
       }
 
       await supabase.from('activities').insert({
@@ -347,6 +358,21 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                     />
                   </motion.div>
                 )}
+
+                {/* Restock flag */}
+                <div className="mt-2 pt-2 border-t border-slate-100">
+                  <button
+                    onPointerDown={e => { e.preventDefault(); toggleRestock(item.id); }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      restockFlags[item.id]
+                        ? 'bg-amber-500 text-white'
+                        : 'bg-slate-100 text-slate-400 hover:bg-amber-50 hover:text-amber-500'
+                    }`}
+                  >
+                    <ShoppingCart size={13} />
+                    {restockFlags[item.id] ? 'Restock Flagged' : 'Flag for Restock'}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -361,7 +387,7 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Category</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-32">System Stock</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-48">Physical Count</th>
-                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-16"></th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-40">Restock</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -412,8 +438,21 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                           )}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <CheckCircle2 size={18} className={`transition-colors ${isDone(item) ? hasMismatch(item) ? 'text-orange-400' : 'text-primary' : 'text-slate-100'}`} />
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 size={18} className={`transition-colors shrink-0 ${isDone(item) ? hasMismatch(item) ? 'text-orange-400' : 'text-primary' : 'text-slate-100'}`} />
+                          <button
+                            onPointerDown={e => { e.preventDefault(); toggleRestock(item.id); }}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                              restockFlags[item.id]
+                                ? 'bg-amber-500 text-white'
+                                : 'bg-slate-100 text-slate-400 hover:bg-amber-50 hover:text-amber-500'
+                            }`}
+                          >
+                            <ShoppingCart size={11} />
+                            {restockFlags[item.id] ? 'Flagged' : 'Restock'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
