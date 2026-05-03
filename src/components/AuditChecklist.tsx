@@ -245,12 +245,12 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
             className="w-full bg-white border border-slate-200 pl-9 pr-4 py-2.5 rounded-xl text-sm font-medium text-slate-700 focus:ring-2 focus:ring-primary/10 focus:border-primary/30 outline-none"
           />
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex flex-wrap gap-2">
           {categories.map(cat => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
-              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
                 activeCategory === cat
                   ? 'bg-primary text-white shadow-sm shadow-primary/30'
                   : 'bg-white border border-slate-200 text-slate-500 hover:text-primary hover:border-primary/30'
