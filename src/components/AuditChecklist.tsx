@@ -17,7 +17,7 @@ interface AuditItem {
   unit: string;
 }
 
-export function AuditChecklist({ onBack }: { onBack: () => void, key?: string }) {
+export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: any, key?: string }) {
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [auditDate, setAuditDate] = useState(new Date().toISOString().split('T')[0]);
@@ -29,6 +29,8 @@ export function AuditChecklist({ onBack }: { onBack: () => void, key?: string })
   const [auditNotes, setAuditNotes] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  const isAdmin = user?.role === 'Admin';
 
   useEffect(() => {
     const fetchData = async () => {
@@ -48,7 +50,14 @@ export function AuditChecklist({ onBack }: { onBack: () => void, key?: string })
             system: item.total,
             unit: item.unit
           })));
-        setBranches((branchResult.data || []).map(b => b.id));
+        const branchIds: string[] = (branchResult.data || []).map((b: any) => b.id);
+        setBranches(branchIds);
+
+        // Default to the user's assigned branch (strip " Branch" suffix if present)
+        if (user?.assignedBranch && user.assignedBranch !== 'Main Branch' && user.assignedBranch !== 'All Branches') {
+          const assignedId = user.assignedBranch.replace(/ Branch$/, '');
+          if (branchIds.includes(assignedId)) setSelectedBranch(assignedId);
+        }
       } catch (err) {
         console.error('Error fetching audit data:', err);
       } finally {
@@ -165,13 +174,19 @@ export function AuditChecklist({ onBack }: { onBack: () => void, key?: string })
             <p className="text-slate-500 text-sm mt-0.5">Bi-monthly stock verification · Big Dental Group</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <select
-              value={selectedBranch}
-              onChange={e => setSelectedBranch(e.target.value)}
-              className="bg-white border border-slate-200 text-sm font-semibold text-slate-700 px-3 py-2 rounded-lg focus:ring-2 focus:ring-primary/10"
-            >
-              {branches.map(b => <option key={b} value={b}>{b} Branch</option>)}
-            </select>
+            {isAdmin ? (
+              <select
+                value={selectedBranch}
+                onChange={e => setSelectedBranch(e.target.value)}
+                className="bg-white border border-slate-200 text-sm font-semibold text-slate-700 px-3 py-2 rounded-lg focus:ring-2 focus:ring-primary/10"
+              >
+                {branches.map(b => <option key={b} value={b}>{b} Branch</option>)}
+              </select>
+            ) : (
+              <span className="bg-white border border-slate-200 text-sm font-semibold text-slate-700 px-3 py-2 rounded-lg">
+                {selectedBranch} Branch
+              </span>
+            )}
             <div className="relative flex items-center">
               <Calendar size={14} className="text-primary absolute left-2.5 pointer-events-none" />
               <input

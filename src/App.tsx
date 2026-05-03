@@ -239,7 +239,7 @@ export default function App() {
             ) : currentView === 'financials' ? (
               <FinancialsView key="financials" user={user} />
             ) : (
-              <AuditChecklist key="audit" onBack={() => setCurrentView('dashboard')} />
+              <AuditChecklist key="audit" onBack={() => setCurrentView('dashboard')} user={user} />
             )}
           </AnimatePresence>
         </main>
