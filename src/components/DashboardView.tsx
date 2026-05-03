@@ -418,40 +418,59 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         }));
       }
 
-      // 2. Update inventory for each mismatch
-      for (const item of mismatches) {
-        if (item.id) {
-          const newTotal = item.actual;
-          const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
+      // 2. Branch ID: strip " Branch" suffix (e.g. "Kepong Branch" → "Kepong")
+      const branchId = log.branch.replace(/ Branch$/, '');
+      const validMismatches = mismatches.filter(m => m.id);
 
-          await supabase.from('inventory').update({
-            total: newTotal,
-            status,
-            last_audit: new Date().toISOString()
-          }).eq('id', item.id);
-
-          await supabase.from('inventory_transactions').insert({
-            type: 'ADJUSTMENT',
-            item_id: item.id,
-            item_name: item.name,
-            quantity: item.actual - item.expected,
-            unit: 'Units',
-            from_location: 'Stock Audit',
-            to_location: log.branch,
-            remarks: `Direct adjustment from audit approval by ${approverName}`,
-            performed_by: session?.user?.id
-          });
-        }
+      // 3. Update branch_inventory for this specific branch first (batch)
+      if (validMismatches.length > 0) {
+        await supabase.from('branch_inventory').upsert(
+          validMismatches.map(m => ({
+            item_id: m.id,
+            branch_id: branchId,
+            quantity: m.actual
+          })),
+          { onConflict: 'item_id,branch_id' }
+        );
       }
 
-      // 3. Update audit log status
+      // 4. Recalculate inventory.total as sum of ALL branches (not just this branch's count)
+      for (const item of validMismatches) {
+        const { data: branchRows } = await supabase
+          .from('branch_inventory')
+          .select('quantity')
+          .eq('item_id', item.id);
+
+        const newTotal = (branchRows || []).reduce((sum: number, row: any) => sum + (row.quantity || 0), 0);
+        const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
+
+        await supabase.from('inventory').update({
+          total: newTotal,
+          status,
+          last_audit: new Date().toISOString()
+        }).eq('id', item.id);
+
+        await supabase.from('inventory_transactions').insert({
+          type: 'ADJUSTMENT',
+          item_id: item.id,
+          item_name: item.name,
+          quantity: item.actual - item.expected,
+          unit: 'Units',
+          from_location: 'Stock Audit',
+          to_location: branchId,
+          remarks: `Audit approval by ${approverName}`,
+          performed_by: session?.user?.id
+        });
+      }
+
+      // 5. Mark audit as approved
       await supabase.from('audit_logs').update({
         approval_status: 'APPROVED',
         approved_by_name: approverName,
         approved_at: new Date().toISOString()
       }).eq('id', log.id);
 
-      alert(`Audit approved and ${mismatches.length} item(s) updated!`);
+      alert(`Audit approved — ${mismatches.length} item(s) updated for ${branchId}.`);
       fetchData();
     } catch (err) {
       console.error('Error approving audit:', err);
