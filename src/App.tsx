@@ -90,11 +90,16 @@ export default function App() {
               if (isOwner && profile.role !== 'Admin') {
                 supabase.from('profiles').update({ role: 'Admin', full_name: `${displayName} [Admin]` }).eq('id', session.user.id).then(() => console.log('Owner promoted to Admin'));
               }
+              const resolvedBranch = profile.assigned_branch || prev.assignedBranch;
+              // Set the active branch now that we have the real profile data
+              if (!isOwner && resolvedBranch && resolvedBranch !== 'All Branches') {
+                setActiveBranch(resolvedBranch);
+              }
               return {
                 ...prev,
                 displayName: displayName,
                 role: isOwner ? 'Admin' : displayRole,
-                assignedBranch: profile.assigned_branch || prev.assignedBranch,
+                assignedBranch: resolvedBranch,
                 photoURL: profile.avatar_url || prev.photoURL
               };
             });
