@@ -401,69 +401,75 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       const { data: { session } } = await supabase.auth.getSession();
       const approverName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Admin';
 
-      // 1. Use in-memory mismatches if available, otherwise fetch from DB
-      let mismatches = log.mismatchedItems;
-      if (!mismatches || mismatches.length === 0) {
-        const { data: rows } = await supabase
-          .from('audit_mismatches')
-          .select('*')
-          .eq('audit_log_id', log.id);
-        mismatches = (rows || []).map((m: any) => ({
-          id: m.item_id,
-          name: m.name,
-          sku: m.sku,
-          expected: m.expected,
-          actual: m.actual,
-          remark: m.remark
+      // 1. Fetch mismatches from DB (always — in-memory join is unreliable for large audits)
+      const { data: rows, error: fetchErr } = await supabase
+        .from('audit_mismatches')
+        .select('*')
+        .eq('audit_log_id', log.id);
+      if (fetchErr) throw fetchErr;
+
+      const mismatches = (rows || [])
+        .filter((m: any) => m.item_id)
+        .map((m: any) => ({
+          id: m.item_id as string,
+          name: m.name as string,
+          sku: m.sku as string,
+          expected: m.expected as number,
+          actual: m.actual as number,
         }));
+
+      const branchId = log.branch.replace(/ Branch$/, '');
+
+      // 2. Batch upsert branch_inventory for this branch
+      if (mismatches.length > 0) {
+        const { error: upsertErr } = await supabase.from('branch_inventory').upsert(
+          mismatches.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual })),
+          { onConflict: 'item_id,branch_id' }
+        );
+        if (upsertErr) throw upsertErr;
       }
 
-      // 2. Branch ID: strip " Branch" suffix (e.g. "Kepong Branch" → "Kepong")
-      const branchId = log.branch.replace(/ Branch$/, '');
-      const validMismatches = mismatches.filter(m => m.id);
+      // 3. ONE query — fetch all branch quantities for all affected items
+      const itemIds = mismatches.map(m => m.id);
+      const { data: allBranchRows, error: branchFetchErr } = await supabase
+        .from('branch_inventory')
+        .select('item_id, quantity')
+        .in('item_id', itemIds);
+      if (branchFetchErr) throw branchFetchErr;
 
-      // 3. Update branch_inventory for this specific branch first (batch)
-      if (validMismatches.length > 0) {
-        await supabase.from('branch_inventory').upsert(
-          validMismatches.map(m => ({
+      // Sum per item across all branches
+      const totalByItem: Record<string, number> = {};
+      for (const row of allBranchRows || []) {
+        totalByItem[row.item_id] = (totalByItem[row.item_id] || 0) + (row.quantity || 0);
+      }
+
+      // 4. Batch insert all transaction records at once
+      if (mismatches.length > 0) {
+        await supabase.from('inventory_transactions').insert(
+          mismatches.map(m => ({
+            type: 'ADJUSTMENT',
             item_id: m.id,
-            branch_id: branchId,
-            quantity: m.actual
-          })),
-          { onConflict: 'item_id,branch_id' }
+            item_name: m.name,
+            quantity: m.actual - m.expected,
+            unit: 'Units',
+            from_location: 'Stock Audit',
+            to_location: branchId,
+            remarks: `Audit approval by ${approverName}`,
+            performed_by: session?.user?.id
+          }))
         );
       }
 
-      // 4. Recalculate inventory.total as sum of ALL branches (not just this branch's count)
-      for (const item of validMismatches) {
-        const { data: branchRows } = await supabase
-          .from('branch_inventory')
-          .select('quantity')
-          .eq('item_id', item.id);
-
-        const newTotal = (branchRows || []).reduce((sum: number, row: any) => sum + (row.quantity || 0), 0);
+      // 5. Update inventory.total per item (sequential but only 1 query each, no nested fetches)
+      for (const item of mismatches) {
+        const newTotal = totalByItem[item.id] ?? item.actual;
         const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
-
         await supabase.from('inventory').update({
-          total: newTotal,
-          status,
-          last_audit: new Date().toISOString()
+          total: newTotal, status, last_audit: new Date().toISOString()
         }).eq('id', item.id);
-
-        await supabase.from('inventory_transactions').insert({
-          type: 'ADJUSTMENT',
-          item_id: item.id,
-          item_name: item.name,
-          quantity: item.actual - item.expected,
-          unit: 'Units',
-          from_location: 'Stock Audit',
-          to_location: branchId,
-          remarks: `Audit approval by ${approverName}`,
-          performed_by: session?.user?.id
-        });
       }
 
-      // 5. Mark audit as approved
+      // 6. Mark audit as approved
       await supabase.from('audit_logs').update({
         approval_status: 'APPROVED',
         approved_by_name: approverName,
@@ -474,7 +480,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       fetchData();
     } catch (err) {
       console.error('Error approving audit:', err);
-      alert('Failed to approve audit');
+      alert('Failed to approve audit. Check console for details.');
     }
   };
 
