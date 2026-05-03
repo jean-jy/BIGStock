@@ -41,6 +41,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const [allBranches, setAllBranches] = useState<any[]>([]);
   const [viewType, setViewType] = useState<'consolidated' | 'branch'>('branch');
   const [branchInventory, setBranchInventory] = useState<Record<string, number>>({});
+  const [approvingAuditId, setApprovingAuditId] = useState<string | null>(null);
 
   useEffect(() => {
     // Default to consolidated if 'Main Branch' is selected AND user is Admin/Manager, otherwise 'branch'
@@ -395,13 +396,14 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   };
 
   const handleApproveAudit = async (log: AuditLog) => {
-    if (!window.confirm('Approve this audit and update system stock?')) return;
+    if (approvingAuditId) return;
+    setApprovingAuditId(log.id);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const approverName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Admin';
 
-      // 1. Fetch mismatches from DB (always — in-memory join is unreliable for large audits)
+      // 1. Fetch mismatches from DB
       const { data: rows, error: fetchErr } = await supabase
         .from('audit_mismatches')
         .select('*')
@@ -413,14 +415,13 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         .map((m: any) => ({
           id: m.item_id as string,
           name: m.name as string,
-          sku: m.sku as string,
           expected: m.expected as number,
           actual: m.actual as number,
         }));
 
       const branchId = log.branch.replace(/ Branch$/, '');
 
-      // 2. Batch upsert branch_inventory for this branch
+      // 2. Batch upsert branch_inventory
       if (mismatches.length > 0) {
         const { error: upsertErr } = await supabase.from('branch_inventory').upsert(
           mismatches.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual })),
@@ -429,21 +430,18 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         if (upsertErr) throw upsertErr;
       }
 
-      // 3. ONE query — fetch all branch quantities for all affected items
+      // 3. One query — all branch quantities for affected items
       const itemIds = mismatches.map(m => m.id);
-      const { data: allBranchRows, error: branchFetchErr } = await supabase
-        .from('branch_inventory')
-        .select('item_id, quantity')
-        .in('item_id', itemIds);
-      if (branchFetchErr) throw branchFetchErr;
+      const { data: allBranchRows } = itemIds.length > 0
+        ? await supabase.from('branch_inventory').select('item_id, quantity').in('item_id', itemIds)
+        : { data: [] };
 
-      // Sum per item across all branches
       const totalByItem: Record<string, number> = {};
       for (const row of allBranchRows || []) {
         totalByItem[row.item_id] = (totalByItem[row.item_id] || 0) + (row.quantity || 0);
       }
 
-      // 4. Batch insert all transaction records at once
+      // 4. Batch insert transactions
       if (mismatches.length > 0) {
         await supabase.from('inventory_transactions').insert(
           mismatches.map(m => ({
@@ -460,16 +458,18 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         );
       }
 
-      // 5. Update inventory.total per item (sequential but only 1 query each, no nested fetches)
-      for (const item of mismatches) {
-        const newTotal = totalByItem[item.id] ?? item.actual;
-        const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
-        await supabase.from('inventory').update({
-          total: newTotal, status, last_audit: new Date().toISOString()
-        }).eq('id', item.id);
-      }
+      // 5. Parallel inventory updates
+      await Promise.all(
+        mismatches.map(item => {
+          const newTotal = totalByItem[item.id] ?? item.actual;
+          const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
+          return supabase.from('inventory').update({
+            total: newTotal, status, last_audit: new Date().toISOString()
+          }).eq('id', item.id);
+        })
+      );
 
-      // 6. Mark audit as approved
+      // 6. Mark audit approved
       await supabase.from('audit_logs').update({
         approval_status: 'APPROVED',
         approved_by_name: approverName,
@@ -480,7 +480,9 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       fetchData();
     } catch (err) {
       console.error('Error approving audit:', err);
-      alert('Failed to approve audit. Check console for details.');
+      alert('Failed to approve audit. Check the browser console for the exact error.');
+    } finally {
+      setApprovingAuditId(null);
     }
   };
 
@@ -1020,9 +1022,13 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                     {(user?.role === 'Admin' || user?.role === 'Branch Manager') && log.approvalStatus === 'PENDING' && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleApproveAudit(log); }}
-                        className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-500 text-white text-xs font-bold rounded-xl active:scale-95"
+                        disabled={approvingAuditId === log.id}
+                        className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-500 text-white text-xs font-bold rounded-xl active:scale-95 disabled:opacity-70"
                       >
-                        <CheckCircle2 size={14} /> Approve & Update Stock
+                        {approvingAuditId === log.id
+                          ? <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Approving...</>
+                          : <><CheckCircle2 size={14} /> Approve & Update Stock</>
+                        }
                       </button>
                     )}
                   </div>
@@ -1144,10 +1150,13 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                                 {(user?.role === 'Admin' || user?.role === 'Branch Manager') && log.approvalStatus === 'PENDING' && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleApproveAudit(log); }}
-                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-md hover:bg-emerald-600 transition-all active:scale-95"
+                                    disabled={approvingAuditId === log.id}
+                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-md hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-70"
                                   >
-                                    <CheckCircle2 size={14} />
-                                    Approve & Update Stock
+                                    {approvingAuditId === log.id
+                                      ? <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Approving...</>
+                                      : <><CheckCircle2 size={14} /> Approve & Update Stock</>
+                                    }
                                   </button>
                                 )}
                               </div>
