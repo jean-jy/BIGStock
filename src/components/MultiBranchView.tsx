@@ -97,7 +97,32 @@ export function MultiBranchView({ onOpenTransfer }: { onOpenTransfer: () => void
         {loading ? (
           <div className="p-12 text-center text-slate-400 text-sm">Loading branch inventory...</div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Mobile cards */}
+          <div className="md:hidden flex flex-col divide-y divide-slate-50">
+            {multiBranchData.map(item => (
+              <div key={item.id} className="p-4">
+                <p className="text-sm font-bold text-slate-900 mb-1">{item.name}</p>
+                <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase mb-3 inline-block">{item.category}</span>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {branchNames.map(branch => (
+                    <div key={branch} className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">{branch}</span>
+                      <span className={`text-sm font-extrabold ${(item.branches[branch] || 0) < 10 ? 'text-tertiary' : 'text-slate-800'}`}>
+                        {item.branches[branch] || 0}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-slate-50">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Total Network</span>
+                  <span className="text-sm font-extrabold text-primary">{item.total}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50/50 border-b border-slate-100">
@@ -133,6 +158,7 @@ export function MultiBranchView({ onOpenTransfer }: { onOpenTransfer: () => void
               </tbody>
             </table>
           </div>
+          </>
         )}
         <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex justify-between items-center">
           <div className="flex items-center gap-4">

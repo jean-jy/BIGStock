@@ -323,99 +323,163 @@ export function StockComparisonView() {
         {loading ? (
           <div className="p-12 text-center text-slate-400 text-sm italic">Loading intel...</div>
         ) : viewMode === 'audit' ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-100">
-                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Item Name</th>
-                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Last Count</th>
-                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Latest Count</th>
-                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Variance</th>
-                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {auditData.map((item) => {
-                  const diff = item.currentCount - item.lastCount;
-                  return (
-                    <tr key={item.id} className="hover:bg-slate-50/30 transition-colors group">
-                      <td className="px-6 py-5">
-                        <p className="text-sm font-bold text-slate-900">{item.name}</p>
-                        <p className="text-[10px] text-slate-400 uppercase tracking-tight font-medium">SKU: {item.sku}</p>
-                      </td>
-                      <td className="px-6 py-5 text-center text-sm font-medium text-slate-500">{item.lastCount}</td>
-                      <td className="px-6 py-5 text-center text-sm font-bold text-slate-900">{item.currentCount}</td>
-                      <td className="px-6 py-5 text-center">
-                        <span className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-tertiary' : 'text-slate-400'}`}>
+          <>
+            {/* Mobile audit cards */}
+            <div className="md:hidden flex flex-col divide-y divide-slate-50">
+              {auditData.map(item => {
+                const diff = item.currentCount - item.lastCount;
+                return (
+                  <div key={item.id} className="p-4">
+                    <p className="text-sm font-bold text-slate-900 mb-0.5">{item.name}</p>
+                    <p className="text-[10px] text-slate-400 uppercase font-bold mb-3">SKU: {item.sku}</p>
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      <div className="bg-slate-50 rounded-lg p-2.5 text-center">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Last</p>
+                        <p className="text-sm font-bold text-slate-500">{item.lastCount}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-2.5 text-center">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Latest</p>
+                        <p className="text-sm font-bold text-slate-900">{item.currentCount}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-2.5 text-center">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Variance</p>
+                        <p className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-tertiary' : 'text-slate-400'}`}>
                           {diff > 0 ? `+${diff}` : diff}
-                        </span>
-                      </td>
-                      <td className="px-6 py-5 text-right">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                          diff > 0 ? 'bg-blue-50 text-blue-700' : diff < 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-500'
-                        }`}>
-                          {diff > 0 ? 'EXTRA' : diff < 0 ? 'MISSING' : 'MATCHED'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </p>
+                      </div>
+                    </div>
+                    <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold ${diff > 0 ? 'bg-blue-50 text-blue-700' : diff < 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-500'}`}>
+                      {diff > 0 ? 'EXTRA' : diff < 0 ? 'MISSING' : 'MATCHED'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Desktop audit table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/50 border-b border-slate-100">
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Item Name</th>
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Last Count</th>
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Latest Count</th>
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Variance</th>
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {auditData.map((item) => {
+                    const diff = item.currentCount - item.lastCount;
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/30 transition-colors group">
+                        <td className="px-6 py-5">
+                          <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                          <p className="text-[10px] text-slate-400 uppercase tracking-tight font-medium">SKU: {item.sku}</p>
+                        </td>
+                        <td className="px-6 py-5 text-center text-sm font-medium text-slate-500">{item.lastCount}</td>
+                        <td className="px-6 py-5 text-center text-sm font-bold text-slate-900">{item.currentCount}</td>
+                        <td className="px-6 py-5 text-center">
+                          <span className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-tertiary' : 'text-slate-400'}`}>
+                            {diff > 0 ? `+${diff}` : diff}
+                          </span>
+                        </td>
+                        <td className="px-6 py-5 text-right">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                            diff > 0 ? 'bg-blue-50 text-blue-700' : diff < 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-500'
+                          }`}>
+                            {diff > 0 ? 'EXTRA' : diff < 0 ? 'MISSING' : 'MATCHED'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         ) : usageData.length === 0 ? (
           <div className="p-20 text-center">
             <p className="text-slate-400 text-sm font-medium">No usage found.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-100">
-                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Date</th>
-                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Item & Branch</th>
-                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Remarks</th>
-                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Qty</th>
-                  <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Value</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {usageData.map((item, idx) => (
-                  <tr key={item.id + idx} className="hover:bg-slate-50/30 transition-colors group">
-                    <td className="px-6 py-5">
-                      <p className="text-xs font-bold text-slate-900">{item.date}</p>
-                    </td>
-                    <td className="px-6 py-5">
-                      <p className="text-sm font-bold text-slate-900">{item.name}</p>
-                      <p className="text-[9px] text-primary uppercase font-bold tracking-tighter">{item.branch}</p>
-                    </td>
-                    <td className="px-6 py-5">
-                      <p className="text-xs text-slate-500 italic max-w-[200px] truncate" title={item.remarks}>{item.remarks}</p>
-                    </td>
-                    <td className="px-6 py-5 text-right">
+          <>
+            {/* Mobile usage cards */}
+            <div className="md:hidden flex flex-col divide-y divide-slate-50">
+              {usageData.map((item, idx) => (
+                <div key={item.id + idx} className="p-4">
+                  <div className="flex items-start justify-between mb-1">
+                    <p className="text-sm font-bold text-slate-900 flex-1 pr-2">{item.name}</p>
+                    <p className="text-xs font-bold text-slate-400 shrink-0">{item.date}</p>
+                  </div>
+                  <p className="text-[10px] font-bold text-primary uppercase mb-2">{item.branch}</p>
+                  {item.remarks && item.remarks !== 'No remarks' && (
+                    <p className="text-xs text-slate-500 italic mb-2 truncate">{item.remarks}</p>
+                  )}
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-50">
+                    <div>
                       <span className="text-sm font-extrabold text-primary">-{item.quantity}</span>
-                      <span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
-                    </td>
-                    <td className="px-6 py-5 text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        <div className="text-right">
-                          <span className="text-sm font-bold text-slate-900">RM {item.usageValue.toFixed(2)}</span>
-                          <p className="text-[9px] text-slate-400 font-medium">Recorded Value</p>
-                        </div>
-                        <button 
-                          onClick={() => handleVoidUsage(item)}
-                          className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all"
-                          title="Void this usage (Adds stock back)"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
+                      <span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-bold text-slate-800">RM {item.usageValue.toFixed(2)}</span>
+                      <button onClick={() => handleVoidUsage(item)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Desktop usage table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/50 border-b border-slate-100">
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Date</th>
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Item & Branch</th>
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Remarks</th>
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Qty</th>
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Value</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {usageData.map((item, idx) => (
+                    <tr key={item.id + idx} className="hover:bg-slate-50/30 transition-colors group">
+                      <td className="px-6 py-5">
+                        <p className="text-xs font-bold text-slate-900">{item.date}</p>
+                      </td>
+                      <td className="px-6 py-5">
+                        <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                        <p className="text-[9px] text-primary uppercase font-bold tracking-tighter">{item.branch}</p>
+                      </td>
+                      <td className="px-6 py-5">
+                        <p className="text-xs text-slate-500 italic max-w-[200px] truncate" title={item.remarks}>{item.remarks}</p>
+                      </td>
+                      <td className="px-6 py-5 text-right">
+                        <span className="text-sm font-extrabold text-primary">-{item.quantity}</span>
+                        <span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
+                      </td>
+                      <td className="px-6 py-5 text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          <div className="text-right">
+                            <span className="text-sm font-bold text-slate-900">RM {item.usageValue.toFixed(2)}</span>
+                            <p className="text-[9px] text-slate-400 font-medium">Recorded Value</p>
+                          </div>
+                          <button
+                            onClick={() => handleVoidUsage(item)}
+                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all"
+                            title="Void this usage (Adds stock back)"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </motion.div>

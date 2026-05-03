@@ -634,7 +634,53 @@ export function FinancialsView({ user }: { user?: any }) {
                         className="overflow-hidden"
                       >
                         <div className="bg-slate-50/50 border-t border-slate-100">
-                          <table className="w-full text-left">
+                          {/* Mobile item cards */}
+                          <div className="md:hidden flex flex-col divide-y divide-slate-100">
+                            {cat.items.map(item => (
+                              <div key={item.id} className="p-4">
+                                <p className="text-sm font-bold text-slate-800 mb-0.5">{item.name}</p>
+                                <p className="text-[10px] text-slate-400 font-mono mb-3">{item.sku} · {formatRM(item.unitPrice)}/unit</p>
+                                <div className="grid grid-cols-2 gap-1.5 mb-2">
+                                  <div className="bg-white rounded-lg px-3 py-2">
+                                    <p className="text-[9px] font-bold text-slate-400 uppercase">Start Qty</p>
+                                    <p className="text-sm font-bold text-slate-600">{item.startingQty}</p>
+                                  </div>
+                                  {item.purchasedQty > 0 && (
+                                    <div className="bg-blue-50 rounded-lg px-3 py-2">
+                                      <p className="text-[9px] font-bold text-blue-400 uppercase">+ Purchased</p>
+                                      <p className="text-sm font-bold text-blue-600">+{item.purchasedQty}</p>
+                                    </div>
+                                  )}
+                                  {item.consumedQty > 0 && (
+                                    <div className="bg-orange-50 rounded-lg px-3 py-2">
+                                      <p className="text-[9px] font-bold text-orange-400 uppercase">− Used</p>
+                                      <p className="text-sm font-bold text-orange-600">-{item.consumedQty}</p>
+                                    </div>
+                                  )}
+                                  {item.adjustmentQty !== 0 && (
+                                    <div className={`rounded-lg px-3 py-2 ${item.adjustmentQty > 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                                      <p className={`text-[9px] font-bold uppercase ${item.adjustmentQty > 0 ? 'text-green-400' : 'text-red-400'}`}>± Adjust</p>
+                                      <p className={`text-sm font-bold ${item.adjustmentQty > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {item.adjustmentQty > 0 ? `+${item.adjustmentQty}` : item.adjustmentQty}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2">
+                                  <div>
+                                    <p className="text-[9px] font-bold text-slate-400 uppercase">End Qty</p>
+                                    <p className="text-sm font-extrabold text-slate-800">{item.endingQty} {item.unit}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-[9px] font-bold text-slate-400 uppercase">End Value</p>
+                                    <p className="text-sm font-bold text-primary">{formatRM(item.endingValue)}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          {/* Desktop item table */}
+                          <table className="hidden md:table w-full text-left">
                             <thead>
                               <tr className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
                                 <th className="px-6 py-3">Item</th>

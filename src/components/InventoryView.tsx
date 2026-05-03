@@ -164,7 +164,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
       const mappedItems: InventoryItem[] = (invResult.data || []).map(item => ({
         ...item,
         category: normalizeCategory(item.category || ''),
-        lastAudit: item.last_audit || 'Never',
+        lastAudit: item.last_audit ? new Date(item.last_audit).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Never',
         branchStock: {}
       }));
 

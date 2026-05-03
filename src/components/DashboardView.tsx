@@ -73,7 +73,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       });
       setBranchInventory(binv);
 
-      setItems((invResult.data || []).map(i => ({ ...i, category: normalizeCategory(i.category || ''), lastAudit: i.last_audit || 'Never' })));
+      setItems((invResult.data || []).map(i => ({ ...i, category: normalizeCategory(i.category || ''), lastAudit: i.last_audit ? new Date(i.last_audit).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Never' })));
       setTransactions(txResult.data || []);
 
       // Map audit logs
