@@ -45,6 +45,8 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const [viewType, setViewType] = useState<'consolidated' | 'branch'>('branch');
   const [branchInventory, setBranchInventory] = useState<Record<string, number>>({});
   const [approvingAuditId, setApprovingAuditId] = useState<string | null>(null);
+  const [restockByBranch, setRestockByBranch] = useState<Record<string, { name: string; items: { id: string; name: string; sku: string; category: string; current: number; minStock: number; unit: string }[] }>>({});
+  const [restockCollapsed, setRestockCollapsed] = useState(false);
 
   useEffect(() => {
     // Default to consolidated if 'Main Branch' is selected AND user is Admin/Manager, otherwise 'branch'
@@ -58,18 +60,34 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [invResult, txResult, auditResult, poResult, supplierResult, branchResult, branchInvResult] = await Promise.all([
+      const [invResult, txResult, auditResult, poResult, supplierResult, branchResult, branchInvResult, allBranchInvResult] = await Promise.all([
         supabase.from('inventory').select('*').order('category').order('name').limit(5000),
         supabase.from('inventory_transactions').select('*').order('created_at', { ascending: false }).limit(20),
         supabase.from('audit_logs').select('*, audit_mismatches(*)').order('created_at', { ascending: false }),
         supabase.from('procurement_orders').select('*, procurement_order_items(*)').order('created_at', { ascending: false }),
         supabase.from('suppliers').select('name').order('name'),
         supabase.from('branches').select('*').order('name'),
-        supabase.from('branch_inventory').select('item_id, quantity').eq('branch_id', activeBranch)
+        supabase.from('branch_inventory').select('item_id, quantity').eq('branch_id', activeBranch),
+        supabase.from('branch_inventory').select('item_id, quantity, branch_id')
       ]);
 
       setAllBranches(branchResult.data || []);
-      
+
+      // Compute restock needs per branch
+      const itemMap = new Map((invResult.data || []).map((i: any) => [i.id, i]));
+      const branchNameMap = new Map((branchResult.data || []).map((b: any) => [b.id, b.name || b.id]));
+      const restock: Record<string, { name: string; items: any[] }> = {};
+      for (const row of allBranchInvResult.data || []) {
+        const item = itemMap.get(row.item_id);
+        if (!item) continue;
+        const minStock = item.min_stock || 20;
+        if (row.quantity >= minStock) continue;
+        if (!restock[row.branch_id]) restock[row.branch_id] = { name: branchNameMap.get(row.branch_id) || row.branch_id, items: [] };
+        restock[row.branch_id].items.push({ id: item.id, name: item.name, sku: item.sku, category: normalizeCategory(item.category || ''), current: row.quantity, minStock, unit: item.unit || 'Units' });
+      }
+      Object.values(restock).forEach(b => b.items.sort((a, b) => a.current - b.current));
+      setRestockByBranch(restock);
+
       // Map branch inventory to a lookup object
       const binv: Record<string, number> = {};
       (branchInvResult.data || []).forEach((row: any) => {
@@ -527,6 +545,9 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
     return sum + (qty * (item.price || 0));
   }, 0);
 
+  const isAdmin = user?.role === 'Admin';
+  const tdCls = isAdmin ? 'px-4 py-2' : 'px-6 py-5';
+
   const displayItems = items.filter(item => {
     const iType = item.item_type || 'Stock';
     if (user?.role === 'Staff' && iType === 'Asset') return false;
@@ -536,7 +557,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
     return catCmp !== 0 ? catCmp : a.name.localeCompare(b.name);
   });
   const totalPages = Math.ceil(displayItems.length / PAGE_SIZE);
-  const paginatedItems = displayItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const paginatedItems = isAdmin ? displayItems : displayItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   useEffect(() => { setCurrentPage(1); }, [activeItemType]);
 
@@ -685,6 +706,82 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         <StatsCard label="In Transit" value="156 Units" subtext="Pending Delivery" borderVariant="secondary" />
         <StatsCard label="Stock Value" value={formatStockValue(stockValue)} subtext="Calculated total value" borderVariant="blue" />
       </div>
+
+      {/* Restock Alert Panel — Admin only */}
+      {isAdmin && Object.keys(restockByBranch).length > 0 && (
+        <div className="mb-6 bg-white rounded-2xl border border-red-100 shadow-sm overflow-hidden">
+          <div
+            className="flex items-center justify-between px-5 py-3.5 bg-gradient-to-r from-red-50 to-orange-50 border-b border-red-100 cursor-pointer select-none"
+            onClick={() => setRestockCollapsed(!restockCollapsed)}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center shrink-0">
+                <AlertCircle size={16} className="text-red-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                  Restock Alert
+                  <span className="px-2 py-0.5 bg-red-500 text-white text-[9px] font-black rounded-full">
+                    {Object.values(restockByBranch).reduce((s, b) => s + b.items.length, 0)} items
+                  </span>
+                </h3>
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  {Object.keys(restockByBranch).length} branch{Object.keys(restockByBranch).length !== 1 ? 'es' : ''} need restocking
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {Object.entries(restockByBranch).map(([id, b]) => (
+                <span key={id} className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 bg-white border border-red-100 text-red-600 text-[10px] font-bold rounded-full shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
+                  {b.name} · {b.items.length}
+                </span>
+              ))}
+              {restockCollapsed ? <ChevronDown size={16} className="text-slate-400 ml-2" /> : <ChevronUp size={16} className="text-slate-400 ml-2" />}
+            </div>
+          </div>
+
+          {!restockCollapsed && (
+            <div className={`grid grid-cols-1 divide-y md:divide-y-0 md:divide-x divide-slate-100 ${Object.keys(restockByBranch).length === 1 ? 'md:grid-cols-1' : Object.keys(restockByBranch).length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
+              {Object.entries(restockByBranch).map(([branchId, branch]) => {
+                const urgent = branch.items.filter(i => i.current === 0).length;
+                return (
+                  <div key={branchId} className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">{branch.name}</h4>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {urgent > 0 && <span className="text-red-500 font-bold">{urgent} out of stock · </span>}
+                          {branch.items.length} items total
+                        </p>
+                      </div>
+                      <span className={`px-2 py-1 text-[10px] font-black rounded-lg ${urgent > 0 ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
+                        {urgent > 0 ? '🔴 URGENT' : '🟠 LOW'}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                      {branch.items.map(item => (
+                        <div key={item.id} className="flex items-center gap-2 py-1 border-b border-slate-50 last:border-0">
+                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${item.current === 0 ? 'bg-red-500' : 'bg-orange-400'}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-slate-800 truncate leading-tight">{item.name}</p>
+                            <p className="text-[9px] text-slate-400 uppercase leading-tight">{item.category}</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <span className={`text-xs font-extrabold ${item.current === 0 ? 'text-red-600' : 'text-orange-500'}`}>{item.current}</span>
+                            <span className="text-[10px] text-slate-400"> / {item.minStock}</span>
+                            <span className="text-[9px] text-slate-300 ml-0.5 uppercase">{item.unit}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-6 md:gap-8 border-b border-slate-100 mb-6 overflow-x-auto pb-px scrollbar-hide">
@@ -847,7 +944,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                 </React.Fragment>
               );
             })}
-            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={displayItems.length} pageSize={PAGE_SIZE} />
+            {!isAdmin && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={displayItems.length} pageSize={PAGE_SIZE} />}
           </div>
 
           {/* Desktop inventory table */}
@@ -876,38 +973,40 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                         </tr>
                       )}
                     <tr className={`transition-colors ${item.is_reorder_flagged ? 'bg-orange-50/40 hover:bg-orange-50/80' : 'hover:bg-slate-50/50'}`}>
-                      <td className="px-6 py-5">
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2">
-                            <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
-                              (item.item_type || 'Stock') === 'Asset' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                            }`}>
-                              {item.item_type || 'Stock'}
-                            </span>
-                            <span className="text-sm font-bold text-slate-900">{item.name}</span>
-                            {item.is_reorder_flagged && (
-                              <span title={`Flagged reason: ${item.reorder_flag_remark || 'None'}`} className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[9px] font-extrabold uppercase rounded-md tracking-widest flex items-center gap-1 border border-orange-200">
-                                <AlertCircle size={10} /> Flagged Low
-                              </span>
-                            )}
+                      <td className={tdCls}>
+                        <div className="flex items-center gap-2">
+                          <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
+                            (item.item_type || 'Stock') === 'Asset' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                          }`}>
+                            {item.item_type || 'Stock'}
+                          </span>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-bold text-slate-900">{item.name}</span>
+                              {item.is_reorder_flagged && (
+                                <span title={`Flagged reason: ${item.reorder_flag_remark || 'None'}`} className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[9px] font-extrabold uppercase rounded-md tracking-widest flex items-center gap-1 border border-orange-200">
+                                  <AlertCircle size={10} /> Flagged Low
+                                </span>
+                              )}
+                            </div>
+                            {!isAdmin && <span className="text-[10px] text-slate-500 uppercase">{item.subtext}</span>}
                           </div>
-                          <span className="text-[10px] text-slate-500 uppercase">{item.subtext}</span>
                         </div>
                       </td>
-                      <td className="px-6 py-5">
+                      <td className={tdCls}>
                         <span className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded">{item.category}</span>
                       </td>
-                      <td className="px-6 py-5 text-xs font-mono text-slate-400">{item.sku}</td>
-                      <td className={`px-6 py-5 text-sm font-bold ${
+                      <td className={`${tdCls} text-xs font-mono text-slate-400`}>{item.sku}</td>
+                      <td className={`${tdCls} text-sm font-bold ${
                         (viewType === 'consolidated' ? item.total : (branchInventory[item.id] || 0)) < (item.min_stock || 20) ? 'text-tertiary' : 'text-slate-900'
                       }`}>
                         {viewType === 'consolidated' ? item.total.toLocaleString() : (branchInventory[item.id] || 0).toLocaleString()}
                       </td>
-                      <td className="px-6 py-5 text-xs font-medium text-slate-500">{item.lastAudit}</td>
-                      <td className="px-6 py-5">
+                      <td className={`${tdCls} text-xs font-medium text-slate-500`}>{item.lastAudit}</td>
+                      <td className={tdCls}>
                         <StatusBadge status={item.status} />
                       </td>
-                      <td className="px-6 py-5">
+                      <td className={tdCls}>
                         <div className="flex items-center gap-2">
                           {(user?.role === 'Admin' || user?.role === 'Branch Manager') && (
                             <>
@@ -955,7 +1054,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                 </tbody>
               </table>
             </div>
-            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={displayItems.length} pageSize={PAGE_SIZE} />
+            {!isAdmin && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={displayItems.length} pageSize={PAGE_SIZE} />}
           </div>
         </>
       )}

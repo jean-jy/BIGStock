@@ -394,8 +394,10 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
     return catCmp !== 0 ? catCmp : a.name.localeCompare(b.name);
   });
 
+  const isAdmin = user?.role === 'Admin';
+  const tdCls = isAdmin ? 'px-4 py-2' : 'px-6 py-5';
   const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE);
-  const paginatedItems = filteredItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const paginatedItems = isAdmin ? filteredItems : filteredItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   useEffect(() => { setCurrentPage(1); }, [activeCategory, activeType, searchQuery]);
 
@@ -594,7 +596,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
           </div>
           </React.Fragment>
         ))}
-        <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} pageSize={PAGE_SIZE} />
+        {!isAdmin && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} pageSize={PAGE_SIZE} />}
       </div>
 
       {/* Desktop inventory table */}
@@ -623,30 +625,32 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
                   </tr>
                 )}
               <tr className="hover:bg-slate-50/30 transition-colors group">
-                <td className="px-6 py-5">
+                <td className={tdCls}>
                   <div className="flex items-center gap-2">
-                    <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
+                    <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
                       (item.item_type || 'Stock') === 'Asset' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
                     }`}>
                       {item.item_type || 'Stock'}
                     </span>
-                    <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                      {!isAdmin && <p className="text-[10px] text-slate-400 uppercase tracking-tight">{item.subtext}</p>}
+                    </div>
                   </div>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-tight mt-1">{item.subtext}</p>
                 </td>
-                <td className="px-6 py-5">
+                <td className={tdCls}>
                   <span className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase">{item.category}</span>
                 </td>
-                <td className="px-6 py-5 text-xs font-mono text-slate-400">{item.sku}</td>
-                <td className="px-6 py-5 text-sm font-bold text-slate-900">RM {item.price?.toFixed(2) || '0.00'}</td>
-                <td className="px-6 py-5">
+                <td className={`${tdCls} text-xs font-mono text-slate-400`}>{item.sku}</td>
+                <td className={`${tdCls} text-sm font-bold text-slate-900`}>RM {item.price?.toFixed(2) || '0.00'}</td>
+                <td className={tdCls}>
                   <span className="text-sm font-bold text-slate-700">{item.total}</span>
                   <span className="text-[10px] text-slate-400 ml-1 uppercase">{item.unit}</span>
                 </td>
-                <td className="px-6 py-5 text-center">
+                <td className={`${tdCls} text-center`}>
                   <StatusBadge status={item.status} />
                 </td>
-                <td className="px-6 py-5 text-right">
+                <td className={`${tdCls} text-right`}>
                   <div className="flex items-center justify-end gap-2">
                     <button
                       onClick={() => openStockInModal(item)}
@@ -678,7 +682,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
           </tbody>
         </table>
         </div>
-        <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} pageSize={PAGE_SIZE} />
+        {!isAdmin && <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} pageSize={PAGE_SIZE} />}
       </div>
 
       {/* Create Modal */}
