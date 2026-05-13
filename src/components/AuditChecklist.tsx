@@ -174,12 +174,13 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
         );
       }
 
-      // Flag items marked for restock
+      // Flag items marked for restock — stored per-branch on branch_inventory
       const restockItemIds = Object.entries(restockFlags).filter(([, v]) => v).map(([id]) => id);
       if (restockItemIds.length > 0) {
-        await supabase.from('inventory')
+        await supabase.from('branch_inventory')
           .update({ is_reorder_flagged: true, reorder_flag_remark: `Urgent restock flagged during audit by ${auditorName}` })
-          .in('id', restockItemIds);
+          .in('item_id', restockItemIds)
+          .eq('branch_id', selectedBranch);
       }
 
       await supabase.from('activities').insert({

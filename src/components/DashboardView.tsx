@@ -43,7 +43,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [allBranches, setAllBranches] = useState<any[]>([]);
   const [viewType, setViewType] = useState<'consolidated' | 'branch'>('branch');
-  const [branchInventory, setBranchInventory] = useState<Record<string, number>>({});
+  const [branchInventory, setBranchInventory] = useState<Record<string, { qty: number; flagged: boolean }>>({});
   const [approvingAuditId, setApprovingAuditId] = useState<string | null>(null);
   const [restockByBranch, setRestockByBranch] = useState<Record<string, { name: string; items: { id: string; name: string; sku: string; category: string; current: number; minStock: number; unit: string; flagged: boolean; belowMin: boolean }[] }>>({});
   const [restockCollapsed, setRestockCollapsed] = useState(false);
@@ -67,8 +67,8 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         supabase.from('procurement_orders').select('*, procurement_order_items(*)').order('created_at', { ascending: false }),
         supabase.from('suppliers').select('name').order('name'),
         supabase.from('branches').select('*').order('name'),
-        supabase.from('branch_inventory').select('item_id, quantity').eq('branch_id', activeBranch),
-        supabase.from('branch_inventory').select('item_id, quantity, branch_id')
+        supabase.from('branch_inventory').select('item_id, quantity, is_reorder_flagged').eq('branch_id', activeBranch),
+        supabase.from('branch_inventory').select('item_id, quantity, branch_id, is_reorder_flagged')
       ]);
 
       setAllBranches(branchResult.data || []);
@@ -82,7 +82,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         if (!item) continue;
         const minStock = item.min_stock || 20;
         const isBelowMin = row.quantity < minStock;
-        const isFlagged = !!item.is_reorder_flagged;
+        const isFlagged = !!row.is_reorder_flagged;
         if (!isBelowMin && !isFlagged) continue;
         if (!restock[row.branch_id]) restock[row.branch_id] = { name: branchNameMap.get(row.branch_id) || row.branch_id, items: [] };
         restock[row.branch_id].items.push({ id: item.id, name: item.name, sku: item.sku, category: normalizeCategory(item.category || ''), current: row.quantity, minStock, unit: item.unit || 'Units', flagged: isFlagged, belowMin: isBelowMin });
@@ -91,9 +91,9 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       setRestockByBranch(restock);
 
       // Map branch inventory to a lookup object
-      const binv: Record<string, number> = {};
+      const binv: Record<string, { qty: number; flagged: boolean }> = {};
       (branchInvResult.data || []).forEach((row: any) => {
-        binv[row.item_id] = row.quantity;
+        binv[row.item_id] = { qty: row.quantity, flagged: !!row.is_reorder_flagged };
       });
       setBranchInventory(binv);
 
@@ -539,11 +539,11 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
 
   const totalSKUs = items.length;
   const criticalStock = items.filter(item => {
-    const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id] || 0);
+    const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id]?.qty ?? 0);
     return qty < (item.min_stock || 20);
   }).length;
   const stockValue = items.reduce((sum, item) => {
-    const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id] || 0);
+    const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id]?.qty ?? 0);
     return sum + (qty * (item.price || 0));
   }, 0);
 
@@ -890,7 +890,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
           {/* Mobile inventory card list */}
           <div className="flex flex-col gap-3 md:hidden">
             {paginatedItems.map((item, idx, arr) => {
-              const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id] || 0);
+              const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id]?.qty ?? 0);
               const isCritical = qty < (item.min_stock || 20);
               const showCatHeader = idx === 0 || item.category !== arr[idx - 1].category;
               return (
@@ -900,7 +900,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                       {item.category || 'Uncategorized'}
                     </div>
                   )}
-                <div className={`bg-white rounded-xl border shadow-sm p-4 ${item.is_reorder_flagged ? 'border-orange-200 bg-orange-50/30' : 'border-slate-100'}`}>
+                <div className={`bg-white rounded-xl border shadow-sm p-4 ${branchInventory[item.id]?.flagged ? 'border-orange-200 bg-orange-50/30' : 'border-slate-100'}`}>
                   <div className="flex items-start gap-2 mb-2">
                     <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${(item.item_type || 'Stock') === 'Asset' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
                       {item.item_type || 'Stock'}
@@ -909,7 +909,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                       <p className="text-sm font-bold text-slate-900 leading-tight">{item.name}</p>
                       {item.subtext && <p className="text-[10px] text-slate-400 uppercase mt-0.5">{item.subtext}</p>}
                     </div>
-                    {item.is_reorder_flagged && (
+                    {branchInventory[item.id]?.flagged && (
                       <span className="shrink-0 px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[9px] font-extrabold uppercase rounded-md border border-orange-200 flex items-center gap-1">
                         <AlertCircle size={9} /> Low
                       </span>
@@ -940,7 +940,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                           <Plus size={13} /> Order
                         </button>
                       )}
-                      {!item.is_reorder_flagged ? (
+                      {!branchInventory[item.id]?.flagged ? (
                         <button onClick={() => { setFlagForm({ itemId: item.id, remark: '' }); setFlaggedItemName(item.name); setFlagModalOpen(true); }} className="ml-auto p-2 text-slate-400 hover:text-orange-500 rounded-lg transition-colors">
                           <AlertCircle size={16} />
                         </button>
@@ -983,7 +983,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                           </td>
                         </tr>
                       )}
-                    <tr className={`transition-colors ${item.is_reorder_flagged ? 'bg-orange-50/40 hover:bg-orange-50/80' : 'hover:bg-slate-50/50'}`}>
+                    <tr className={`transition-colors ${branchInventory[item.id]?.flagged ? 'bg-orange-50/40 hover:bg-orange-50/80' : 'hover:bg-slate-50/50'}`}>
                       <td className={tdCls}>
                         <div className="flex items-center gap-2">
                           <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
@@ -994,7 +994,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                           <div>
                             <div className="flex items-center gap-1.5">
                               <span className="text-sm font-bold text-slate-900">{item.name}</span>
-                              {item.is_reorder_flagged && (
+                              {branchInventory[item.id]?.flagged && (
                                 <span title={`Flagged reason: ${item.reorder_flag_remark || 'None'}`} className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[9px] font-extrabold uppercase rounded-md tracking-widest flex items-center gap-1 border border-orange-200">
                                   <AlertCircle size={10} /> Flagged Low
                                 </span>
@@ -1009,9 +1009,9 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                       </td>
                       <td className={`${tdCls} text-xs font-mono text-slate-400`}>{item.sku}</td>
                       <td className={`${tdCls} text-sm font-bold ${
-                        (viewType === 'consolidated' ? item.total : (branchInventory[item.id] || 0)) < (item.min_stock || 20) ? 'text-tertiary' : 'text-slate-900'
+                        (viewType === 'consolidated' ? item.total : (branchInventory[item.id]?.qty ?? 0)) < (item.min_stock || 20) ? 'text-tertiary' : 'text-slate-900'
                       }`}>
-                        {viewType === 'consolidated' ? item.total.toLocaleString() : (branchInventory[item.id] || 0).toLocaleString()}
+                        {viewType === 'consolidated' ? item.total.toLocaleString() : (branchInventory[item.id]?.qty ?? 0).toLocaleString()}
                       </td>
                       <td className={`${tdCls} text-xs font-medium text-slate-500`}>{item.lastAudit}</td>
                       <td className={tdCls}>
@@ -1039,7 +1039,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                               )}
                             </>
                           )}
-                          {!item.is_reorder_flagged ? (
+                          {!branchInventory[item.id]?.flagged ? (
                             <button
                               onClick={() => { setFlagForm({ itemId: item.id, remark: '' }); setFlaggedItemName(item.name); setFlagModalOpen(true); }}
                               className="text-slate-400 hover:text-orange-500 transition-colors p-1"
