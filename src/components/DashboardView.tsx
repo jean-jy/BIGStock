@@ -45,7 +45,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const [viewType, setViewType] = useState<'consolidated' | 'branch'>('branch');
   const [branchInventory, setBranchInventory] = useState<Record<string, number>>({});
   const [approvingAuditId, setApprovingAuditId] = useState<string | null>(null);
-  const [restockByBranch, setRestockByBranch] = useState<Record<string, { name: string; items: { id: string; name: string; sku: string; category: string; current: number; minStock: number; unit: string }[] }>>({});
+  const [restockByBranch, setRestockByBranch] = useState<Record<string, { name: string; items: { id: string; name: string; sku: string; category: string; current: number; minStock: number; unit: string; flagged: boolean; belowMin: boolean }[] }>>({});
   const [restockCollapsed, setRestockCollapsed] = useState(false);
 
   useEffect(() => {
@@ -73,7 +73,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
 
       setAllBranches(branchResult.data || []);
 
-      // Compute restock needs per branch
+      // Compute restock needs per branch (low stock OR manually flagged)
       const itemMap = new Map((invResult.data || []).map((i: any) => [i.id, i]));
       const branchNameMap = new Map((branchResult.data || []).map((b: any) => [b.id, b.name || b.id]));
       const restock: Record<string, { name: string; items: any[] }> = {};
@@ -81,9 +81,11 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         const item = itemMap.get(row.item_id);
         if (!item) continue;
         const minStock = item.min_stock || 20;
-        if (row.quantity >= minStock) continue;
+        const isBelowMin = row.quantity < minStock;
+        const isFlagged = !!item.is_reorder_flagged;
+        if (!isBelowMin && !isFlagged) continue;
         if (!restock[row.branch_id]) restock[row.branch_id] = { name: branchNameMap.get(row.branch_id) || row.branch_id, items: [] };
-        restock[row.branch_id].items.push({ id: item.id, name: item.name, sku: item.sku, category: normalizeCategory(item.category || ''), current: row.quantity, minStock, unit: item.unit || 'Units' });
+        restock[row.branch_id].items.push({ id: item.id, name: item.name, sku: item.sku, category: normalizeCategory(item.category || ''), current: row.quantity, minStock, unit: item.unit || 'Units', flagged: isFlagged, belowMin: isBelowMin });
       }
       Object.values(restock).forEach(b => b.items.sort((a, b) => a.current - b.current));
       setRestockByBranch(restock);
@@ -760,20 +762,29 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                       </span>
                     </div>
                     <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                      {branch.items.map(item => (
+                      {branch.items.map(item => {
+                        const dotColor = item.current === 0 ? 'bg-red-500' : item.belowMin ? 'bg-orange-400' : 'bg-blue-400';
+                        const qtyColor = item.current === 0 ? 'text-red-600' : item.belowMin ? 'text-orange-500' : 'text-blue-500';
+                        return (
                         <div key={item.id} className="flex items-center gap-2 py-1 border-b border-slate-50 last:border-0">
-                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${item.current === 0 ? 'bg-red-500' : 'bg-orange-400'}`} />
+                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-slate-800 truncate leading-tight">{item.name}</p>
-                            <p className="text-[9px] text-slate-400 uppercase leading-tight">{item.category}</p>
+                            <div className="flex items-center gap-1">
+                              <p className="text-[9px] text-slate-400 uppercase leading-tight">{item.category}</p>
+                              {item.flagged && !item.belowMin && (
+                                <span className="text-[8px] font-bold text-blue-500 bg-blue-50 border border-blue-200 rounded px-1 leading-tight">FLAGGED</span>
+                              )}
+                            </div>
                           </div>
                           <div className="shrink-0 text-right">
-                            <span className={`text-xs font-extrabold ${item.current === 0 ? 'text-red-600' : 'text-orange-500'}`}>{item.current}</span>
+                            <span className={`text-xs font-extrabold ${qtyColor}`}>{item.current}</span>
                             <span className="text-[10px] text-slate-400"> / {item.minStock}</span>
                             <span className="text-[9px] text-slate-300 ml-0.5 uppercase">{item.unit}</span>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 );
