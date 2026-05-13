@@ -196,6 +196,24 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
     fetchItems();
   }, [activeBranch]);
 
+  const generateNextSku = (type: string) => {
+    const isAsset = type === 'Asset';
+    const prefix = isAsset ? 'BDG-AST-' : 'BDG-STK-';
+    const regex = isAsset ? /^BDG-AST-(\d{4})$/ : /^BDG-STK-(\d{4})$/;
+    const maxNum = items.reduce((max, item) => {
+      const match = (item.sku || '').match(regex);
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
+    }, 0);
+    return `${prefix}${String(maxNum + 1).padStart(4, '0')}`;
+  };
+
+  const openAddModal = () => {
+    const sku = generateNextSku('Stock');
+    setNewItem({ name: '', subtext: '', category: categories[0] || '', sku, total: 0, unit: 'Units', price: 0, min_stock: 20, item_type: 'Stock' });
+    setEditingItem(null);
+    setIsModalOpen(true);
+  };
+
   const handleAddCategory = () => {
     const normalized = normalizeCategory(newCategoryName.trim());
     if (normalized && !categories.includes(normalized)) {
@@ -438,7 +456,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
             Bulk Import CSV
           </button>
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={openAddModal}
             className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-bold shadow-lg hover:opacity-90 transition-all rounded-md active:scale-95"
           >
             <Plus size={18} />
@@ -726,7 +744,12 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Item Type</label>
                     <select
                       value={newItem.item_type}
-                      onChange={e => setNewItem({...newItem, item_type: e.target.value as 'Stock' | 'Asset'})}
+                      onChange={e => {
+                        const type = e.target.value as 'Stock' | 'Asset';
+                        const autoPattern = /^BDG-(STK|AST)-\d{4}$/;
+                        const sku = !editingItem && autoPattern.test(newItem.sku) ? generateNextSku(type) : newItem.sku;
+                        setNewItem({...newItem, item_type: type, sku});
+                      }}
                       className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/10 transition-all font-bold"
                     >
                       <option value="Stock">Stock (Consumables, Merch)</option>
