@@ -200,20 +200,30 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
 
   const handleSaveSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
+    const payload = {
+      name: supplierForm.name,
+      contact_person: supplierForm.contact_person,
+      phone: supplierForm.phone,
+      email: supplierForm.email,
+      lead_time_days: supplierForm.lead_time_days,
+      notes: supplierForm.notes,
+    };
+    let error;
     if (editingSupplier) {
-      await supabase.from('suppliers').update(supplierForm).eq('name', editingSupplier.name);
+      ({ error } = await supabase.from('suppliers').update(payload).eq('id', editingSupplier.id));
     } else {
-      await supabase.from('suppliers').insert(supplierForm);
+      ({ error } = await supabase.from('suppliers').insert(payload));
     }
+    if (error) { alert('Failed to save supplier: ' + error.message); return; }
     setSupplierModalOpen(false);
     setEditingSupplier(null);
     setSupplierForm({ name: '', contact_person: '', phone: '', email: '', lead_time_days: 7, notes: '' });
     fetchSuppliers();
   };
 
-  const handleDeleteSupplier = async (name: string) => {
+  const handleDeleteSupplier = async (id: string, name: string) => {
     if (!window.confirm(`Delete supplier "${name}"?`)) return;
-    await supabase.from('suppliers').delete().eq('name', name);
+    await supabase.from('suppliers').delete().eq('id', id);
     fetchSuppliers();
   };
 
@@ -785,7 +795,7 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
                           <div className="flex gap-1">
                             <button onClick={() => { setEditingSupplier(s); setSupplierForm({ name: s.name, contact_person: s.contact_person || '', phone: s.phone || '', email: s.email || '', lead_time_days: s.lead_time_days || 7, notes: s.notes || '' }); setSupplierModalOpen(true); }}
                               className="p-1.5 text-slate-400 hover:text-primary rounded-lg hover:bg-white transition-all"><Pencil size={13} /></button>
-                            <button onClick={() => handleDeleteSupplier(s.name)} className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-white transition-all"><Trash2 size={13} /></button>
+                            <button onClick={() => handleDeleteSupplier(s.id, s.name)} className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-white transition-all"><Trash2 size={13} /></button>
                           </div>
                         </div>
                         <div className="space-y-1 text-[11px] text-slate-500">
@@ -892,8 +902,8 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
               <form onSubmit={handleSaveSupplier} className="p-5 space-y-3">
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Supplier Name *</label>
-                  <input required value={supplierForm.name} onChange={e => setSupplierForm(f => ({ ...f, name: e.target.value }))} disabled={!!editingSupplier}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/10 disabled:opacity-60" placeholder="e.g. MedSupply Sdn Bhd" />
+                  <input required value={supplierForm.name} onChange={e => setSupplierForm(f => ({ ...f, name: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/10" placeholder="e.g. MedSupply Sdn Bhd" />
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Contact Person</label>
