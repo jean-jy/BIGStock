@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
 import type { InventoryItem } from '../types';
 import { StatusBadge } from './StatusBadge';
+import { Pagination } from './Pagination';
 
 /** Normalize a category string to Title Case so that "CLEANING", "cleaning", "Cleaning" all become "Cleaning" */
 function normalizeCategory(cat: string): string {
@@ -44,6 +45,8 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
   const [activeCategory, setActiveCategory] = useState('All');
   const [activeType, setActiveType] = useState<'All' | 'Stock' | 'Asset'>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 25;
 
   const [newItem, setNewItem] = useState({
     name: '',
@@ -151,7 +154,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
     setLoading(true);
     try {
       const [invResult, historyResult] = await Promise.all([
-        supabase.from('inventory').select('*').order('name').limit(5000),
+        supabase.from('inventory').select('*').order('category').order('name').limit(5000),
         supabase.from('inventory_transactions')
           .select('id, item_id, item_name, quantity, from_location, remarks, created_at')
           .eq('type', 'STOCK_IN')
@@ -374,6 +377,28 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
     }
   };
 
+  const filteredItems = items.filter(i => {
+    const itemType = i.item_type || 'Stock';
+    if (activeType !== 'All' && itemType !== activeType) return false;
+    if (activeCategory !== 'All' && i.category !== activeCategory) return false;
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      i.name.toLowerCase().includes(q) ||
+      (i.subtext || '').toLowerCase().includes(q) ||
+      (i.category || '').toLowerCase().includes(q) ||
+      (i.sku || '').toLowerCase().includes(q)
+    );
+  }).sort((a, b) => {
+    const catCmp = (a.category || '').localeCompare(b.category || '');
+    return catCmp !== 0 ? catCmp : a.name.localeCompare(b.name);
+  });
+
+  const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE);
+  const paginatedItems = filteredItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  useEffect(() => { setCurrentPage(1); }, [activeCategory, activeType, searchQuery]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -522,22 +547,15 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
       </div>
 
       {/* Mobile inventory card list */}
-      <div className="flex flex-col gap-3 mb-8 md:hidden">
-        {items.filter(i => {
-          const itemType = i.item_type || 'Stock';
-          if (activeType !== 'All' && itemType !== activeType) return false;
-          const matchesCategory = activeCategory === 'All' || i.category === activeCategory;
-          if (!matchesCategory) return false;
-          if (!searchQuery.trim()) return true;
-          const q = searchQuery.toLowerCase();
-          return (
-            i.name.toLowerCase().includes(q) ||
-            (i.subtext || '').toLowerCase().includes(q) ||
-            (i.category || '').toLowerCase().includes(q) ||
-            (i.sku || '').toLowerCase().includes(q)
-          );
-        }).map((item) => (
-          <div key={item.id} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+      <div className="flex flex-col gap-3 md:hidden">
+        {paginatedItems.map((item, idx, arr) => (
+          <React.Fragment key={item.id}>
+            {(idx === 0 || item.category !== arr[idx - 1].category) && (
+              <div className="px-1 pt-4 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                {item.category || 'Uncategorized'}
+              </div>
+            )}
+          <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
             <div className="flex items-start gap-2 mb-2">
               <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${(item.item_type || 'Stock') === 'Asset' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
                 {item.item_type || 'Stock'}
@@ -574,11 +592,14 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
               </button>
             </div>
           </div>
+          </React.Fragment>
         ))}
+        <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} pageSize={PAGE_SIZE} />
       </div>
 
       {/* Desktop inventory table */}
-      <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden overflow-x-auto">
+      <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse min-w-[640px]">
           <thead>
             <tr className="bg-slate-50/50 border-b border-slate-100">
@@ -592,22 +613,16 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {items.filter(i => {
-              const itemType = i.item_type || 'Stock';
-              if (activeType !== 'All' && itemType !== activeType) return false;
-              
-              const matchesCategory = activeCategory === 'All' || i.category === activeCategory;
-              if (!matchesCategory) return false;
-              if (!searchQuery.trim()) return true;
-              const q = searchQuery.toLowerCase();
-              return (
-                i.name.toLowerCase().includes(q) ||
-                (i.subtext || '').toLowerCase().includes(q) ||
-                (i.category || '').toLowerCase().includes(q) ||
-                (i.sku || '').toLowerCase().includes(q)
-              );
-            }).map((item) => (
-              <tr key={item.id} className="hover:bg-slate-50/30 transition-colors group">
+            {paginatedItems.map((item, idx, arr) => (
+              <React.Fragment key={item.id}>
+                {(idx === 0 || item.category !== arr[idx - 1].category) && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-2 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100">
+                      {item.category || 'Uncategorized'}
+                    </td>
+                  </tr>
+                )}
+              <tr className="hover:bg-slate-50/30 transition-colors group">
                 <td className="px-6 py-5">
                   <div className="flex items-center gap-2">
                     <span className={`px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
@@ -658,9 +673,12 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
                   </div>
                 </td>
               </tr>
+              </React.Fragment>
             ))}
           </tbody>
         </table>
+        </div>
+        <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} pageSize={PAGE_SIZE} />
       </div>
 
       {/* Create Modal */}

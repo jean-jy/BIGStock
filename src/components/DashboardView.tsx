@@ -11,6 +11,7 @@ import { supabase } from '../supabase';
 import type { InventoryItem, ProcurementOrder, POLineItem, AuditLog } from '../types';
 import { StatsCard } from './StatsCard';
 import { StatusBadge } from './StatusBadge';
+import { Pagination } from './Pagination';
 
 /** Normalize a category string to Title Case so that "CLEANING", "cleaning", "Cleaning" all become "Cleaning" */
 function normalizeCategory(cat: string): string {
@@ -25,6 +26,8 @@ function normalizeCategory(cat: string): string {
 export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAudit: () => void, activeBranch: string, user?: any, key?: string }) {
   const [dashTab, setDashTab] = useState<'inventory' | 'audit' | 'procurement' | 'transactions'>('inventory');
   const [activeItemType, setActiveItemType] = useState<'All' | 'Stock' | 'Asset'>('All');
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 25;
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +59,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
     setLoading(true);
     try {
       const [invResult, txResult, auditResult, poResult, supplierResult, branchResult, branchInvResult] = await Promise.all([
-        supabase.from('inventory').select('*').order('name').limit(5000),
+        supabase.from('inventory').select('*').order('category').order('name').limit(5000),
         supabase.from('inventory_transactions').select('*').order('created_at', { ascending: false }).limit(20),
         supabase.from('audit_logs').select('*, audit_mismatches(*)').order('created_at', { ascending: false }),
         supabase.from('procurement_orders').select('*, procurement_order_items(*)').order('created_at', { ascending: false }),
@@ -524,6 +527,19 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
     return sum + (qty * (item.price || 0));
   }, 0);
 
+  const displayItems = items.filter(item => {
+    const iType = item.item_type || 'Stock';
+    if (user?.role === 'Staff' && iType === 'Asset') return false;
+    return activeItemType === 'All' || iType === activeItemType;
+  }).sort((a, b) => {
+    const catCmp = (a.category || '').localeCompare(b.category || '');
+    return catCmp !== 0 ? catCmp : a.name.localeCompare(b.name);
+  });
+  const totalPages = Math.ceil(displayItems.length / PAGE_SIZE);
+  const paginatedItems = displayItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  useEffect(() => { setCurrentPage(1); }, [activeItemType]);
+
   const handleEditItem = (item: InventoryItem) => {
     setEditingItem({ ...item });
     setEditModalOpen(true);
@@ -764,16 +780,19 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
           </div>
 
           {/* Mobile inventory card list */}
-          <div className="flex flex-col gap-3 mb-10 md:hidden">
-            {items.filter(item => {
-              const iType = item.item_type || 'Stock';
-              if (user?.role === 'Staff' && iType === 'Asset') return false;
-              return activeItemType === 'All' || iType === activeItemType;
-            }).map((item) => {
+          <div className="flex flex-col gap-3 md:hidden">
+            {paginatedItems.map((item, idx, arr) => {
               const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id] || 0);
               const isCritical = qty < (item.min_stock || 20);
+              const showCatHeader = idx === 0 || item.category !== arr[idx - 1].category;
               return (
-                <div key={item.id} className={`bg-white rounded-xl border shadow-sm p-4 ${item.is_reorder_flagged ? 'border-orange-200 bg-orange-50/30' : 'border-slate-100'}`}>
+                <React.Fragment key={item.id}>
+                  {showCatHeader && (
+                    <div className="px-1 pt-4 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      {item.category || 'Uncategorized'}
+                    </div>
+                  )}
+                <div className={`bg-white rounded-xl border shadow-sm p-4 ${item.is_reorder_flagged ? 'border-orange-200 bg-orange-50/30' : 'border-slate-100'}`}>
                   <div className="flex items-start gap-2 mb-2">
                     <span className={`shrink-0 mt-0.5 px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${(item.item_type || 'Stock') === 'Asset' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
                       {item.item_type || 'Stock'}
@@ -825,9 +844,10 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                     </div>
                   )}
                 </div>
+                </React.Fragment>
               );
             })}
-            <p className="text-center text-xs text-slate-400 font-bold py-2">{items.length.toLocaleString()} items total</p>
+            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={displayItems.length} pageSize={PAGE_SIZE} />
           </div>
 
           {/* Desktop inventory table */}
@@ -846,12 +866,16 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {items.filter(item => {
-                    const iType = item.item_type || 'Stock';
-                    if (user?.role === 'Staff' && iType === 'Asset') return false;
-                    return activeItemType === 'All' || iType === activeItemType;
-                  }).map((item) => (
-                    <tr key={item.id} className={`transition-colors ${item.is_reorder_flagged ? 'bg-orange-50/40 hover:bg-orange-50/80' : 'hover:bg-slate-50/50'}`}>
+                  {paginatedItems.map((item, idx, arr) => (
+                    <React.Fragment key={item.id}>
+                      {(idx === 0 || item.category !== arr[idx - 1].category) && (
+                        <tr>
+                          <td colSpan={7} className="px-6 py-2 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100">
+                            {item.category || 'Uncategorized'}
+                          </td>
+                        </tr>
+                      )}
+                    <tr className={`transition-colors ${item.is_reorder_flagged ? 'bg-orange-50/40 hover:bg-orange-50/80' : 'hover:bg-slate-50/50'}`}>
                       <td className="px-6 py-5">
                         <div className="flex flex-col">
                           <div className="flex items-center gap-2">
@@ -926,14 +950,12 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                         </div>
                       </td>
                     </tr>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="px-6 py-4 flex items-center justify-between border-t border-slate-50 bg-slate-50/20">
-              <span className="text-xs text-slate-500 font-bold">Showing all {items.length.toLocaleString()} entries</span>
-              <span className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Scroll to see more</span>
-            </div>
+            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={displayItems.length} pageSize={PAGE_SIZE} />
           </div>
         </>
       )}

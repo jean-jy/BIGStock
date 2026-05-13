@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Package, AlertCircle, ArrowLeft, Calendar, CheckCircle2, CloudUpload, Search, Plus, Minus, ShoppingCart } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
+import { Pagination } from './Pagination';
 
 function normalizeCategory(cat: string): string {
   if (!cat) return cat;
@@ -30,6 +31,9 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [restockFlags, setRestockFlags] = useState<Record<string, boolean>>({});
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 25;
+  const [branchQuantities, setBranchQuantities] = useState<Record<string, number>>({});
 
   const toggleRestock = (id: string) => setRestockFlags(prev => ({ ...prev, [id]: !prev[id] }));
 
@@ -40,7 +44,7 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
       setLoading(true);
       try {
         const [invResult, branchResult] = await Promise.all([
-          supabase.from('inventory').select('id, name, sku, category, total, unit, item_type').order('name'),
+          supabase.from('inventory').select('id, name, sku, category, total, unit, item_type').order('category').order('name'),
           supabase.from('branches').select('id').order('name')
         ]);
         setAuditItems((invResult.data || [])
@@ -70,29 +74,58 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
     fetchData();
   }, []);
 
+  // Fetch branch-specific quantities whenever the selected branch changes
+  useEffect(() => {
+    if (!selectedBranch) return;
+    supabase
+      .from('branch_inventory')
+      .select('item_id, quantity')
+      .eq('branch_id', selectedBranch)
+      .then(({ data }) => {
+        const map: Record<string, number> = {};
+        for (const row of data || []) map[row.item_id] = row.quantity;
+        setBranchQuantities(map);
+      });
+    // Reset counts when switching branches so prior branch data doesn't carry over
+    setCounts({});
+    setRemarks({});
+  }, [selectedBranch]);
+
+  // Expected quantity for a given item in the currently selected branch
+  const getExpected = (item: AuditItem) =>
+    branchQuantities[item.id] !== undefined ? branchQuantities[item.id] : item.system;
+
   const categories = ['All', ...Array.from(new Set(auditItems.map(i => i.category))).filter(Boolean).sort()];
 
   const filteredItems = auditItems.filter(item => {
     const matchCat = activeCategory === 'All' || item.category === activeCategory;
     const matchSearch = !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.sku.toLowerCase().includes(searchQuery.toLowerCase());
     return matchCat && matchSearch;
+  }).sort((a, b) => {
+    const catCmp = (a.category || '').localeCompare(b.category || '');
+    return catCmp !== 0 ? catCmp : a.name.localeCompare(b.name);
   });
+
+  const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE);
+  const paginatedItems = filteredItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  useEffect(() => { setCurrentPage(1); }, [activeCategory, searchQuery]);
 
   const recordedCount = Object.values(counts).filter(v => v !== '').length;
   const progress = auditItems.length > 0 ? (recordedCount / auditItems.length) * 100 : 0;
 
   const setCount = (id: string, val: string) => setCounts(prev => ({ ...prev, [id]: val }));
   const increment = (item: AuditItem) => {
-    const cur = counts[item.id] === '' || counts[item.id] === undefined ? item.system : Number(counts[item.id]);
+    const cur = counts[item.id] === '' || counts[item.id] === undefined ? getExpected(item) : Number(counts[item.id]);
     setCount(item.id, String(cur + 1));
   };
   const decrement = (item: AuditItem) => {
-    const cur = counts[item.id] === '' || counts[item.id] === undefined ? item.system : Number(counts[item.id]);
+    const cur = counts[item.id] === '' || counts[item.id] === undefined ? getExpected(item) : Number(counts[item.id]);
     setCount(item.id, String(Math.max(0, cur - 1)));
   };
 
   const hasMismatch = (item: AuditItem) =>
-    counts[item.id] !== undefined && counts[item.id] !== '' && Number(counts[item.id]) !== item.system;
+    counts[item.id] !== undefined && counts[item.id] !== '' && Number(counts[item.id]) !== getExpected(item);
 
   const isDone = (item: AuditItem) =>
     counts[item.id] !== undefined && counts[item.id] !== '';
@@ -104,12 +137,12 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
       const auditorName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Unknown';
 
       const mismatches = auditItems
-        .filter(item => counts[item.id] !== undefined && counts[item.id] !== '' && Number(counts[item.id]) !== item.system)
+        .filter(item => counts[item.id] !== undefined && counts[item.id] !== '' && Number(counts[item.id]) !== getExpected(item))
         .map(item => ({
           id: item.id,
           name: item.name,
           sku: item.sku,
-          expected: item.system,
+          expected: getExpected(item),
           actual: Number(counts[item.id]),
           remark: remarks[item.id] || undefined
         }));
@@ -284,9 +317,14 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
         <>
           {/* ── Mobile Card View ── */}
           <div className="md:hidden space-y-3">
-            {filteredItems.map(item => (
+            {paginatedItems.map((item, idx, arr) => (
+              <React.Fragment key={item.id}>
+                {(idx === 0 || item.category !== arr[idx - 1].category) && (
+                  <div className="px-1 pt-2 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    {item.category || 'Uncategorized'}
+                  </div>
+                )}
               <div
-                key={item.id}
                 className={`bg-white rounded-2xl border shadow-sm p-4 transition-all ${
                   isDone(item)
                     ? hasMismatch(item)
@@ -304,7 +342,7 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                     {isDone(item) && !hasMismatch(item) && <CheckCircle2 size={18} className="text-primary" />}
                     {hasMismatch(item) && <AlertCircle size={18} className="text-orange-500" />}
                     <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                      System: {item.system} {item.unit}
+                      Branch: {getExpected(item)} {item.unit}
                     </span>
                   </div>
                 </div>
@@ -324,7 +362,7 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                       pattern="[0-9]*"
                       value={counts[item.id] ?? ''}
                       onChange={e => setCount(item.id, e.target.value)}
-                      placeholder={`Expected: ${item.system}`}
+                      placeholder={`Expected: ${getExpected(item)}`}
                       className={`w-full text-center text-lg font-extrabold py-2.5 rounded-xl border outline-none transition-all ${
                         hasMismatch(item)
                           ? 'border-orange-300 bg-orange-50 text-orange-700'
@@ -374,7 +412,9 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                   </button>
                 </div>
               </div>
+              </React.Fragment>
             ))}
+            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} pageSize={PAGE_SIZE} />
           </div>
 
           {/* ── Desktop Table View ── */}
@@ -385,14 +425,22 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                   <tr className="bg-slate-50/30 border-b border-slate-100">
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Item Details</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Category</th>
-                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-32">System Stock</th>
+                    <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-32">Branch Stock</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-48">Physical Count</th>
                     <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider w-40">Restock</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredItems.map(item => (
-                    <tr key={item.id} className="group hover:bg-slate-50/30 transition-colors">
+                  {paginatedItems.map((item, idx, arr) => (
+                    <React.Fragment key={item.id}>
+                      {(idx === 0 || item.category !== arr[idx - 1].category) && (
+                        <tr>
+                          <td colSpan={5} className="px-6 py-2 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100">
+                            {item.category || 'Uncategorized'}
+                          </td>
+                        </tr>
+                      )}
+                    <tr className="group hover:bg-slate-50/30 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 bg-slate-50 rounded-lg flex items-center justify-center text-slate-300 group-hover:text-primary transition-colors shrink-0">
@@ -408,7 +456,7 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                         <span className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase">{item.category}</span>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-sm font-bold text-slate-700">{item.system} <span className="text-[10px] font-medium text-slate-400 uppercase">{item.unit}</span></span>
+                        <span className="text-sm font-bold text-slate-700">{getExpected(item)} <span className="text-[10px] font-medium text-slate-400 uppercase">{item.unit}</span></span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col gap-2">
@@ -455,10 +503,12 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                         </div>
                       </td>
                     </tr>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
             </div>
+            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} totalItems={filteredItems.length} pageSize={PAGE_SIZE} />
 
             {/* Desktop footer */}
             <div className="p-6 bg-slate-50/50 border-t border-slate-100">
