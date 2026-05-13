@@ -40,7 +40,13 @@ const InputField = ({ label, icon: Icon, placeholder, type = "text", value = "",
 );
 
 export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { user: any; darkMode?: boolean; onToggleDarkMode?: () => void }) {
-  const [activeTab, setActiveTab] = useState<'profile' | 'clinic' | 'notifications' | 'security' | 'data' | 'users'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'clinic' | 'notifications' | 'security' | 'data' | 'users' | 'suppliers' | 'schedules'>('profile');
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [supplierModalOpen, setSupplierModalOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<any | null>(null);
+  const [supplierForm, setSupplierForm] = useState({ name: '', contact_person: '', phone: '', email: '', lead_time_days: 7, notes: '' });
+  const [auditSchedules, setAuditSchedules] = useState<any[]>([]);
+  const [scheduleForm, setScheduleForm] = useState<Record<string, number>>({});
   const [profileUsers, setProfileUsers] = useState<any[]>([]);
   const [rolePermissions, setRolePermissions] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
@@ -173,9 +179,56 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
     }
   };
 
+  const fetchSuppliers = async () => {
+    const { data } = await supabase.from('suppliers').select('*').order('name');
+    setSuppliers(data || []);
+  };
+
+  const fetchSchedules = async () => {
+    const { data } = await supabase.from('audit_schedules').select('*');
+    setAuditSchedules(data || []);
+    const map: Record<string, number> = {};
+    (data || []).forEach((s: any) => { map[s.branch_id] = s.frequency_days; });
+    setScheduleForm(map);
+  };
+
   useEffect(() => {
     fetchSettingsData();
+    fetchSuppliers();
+    fetchSchedules();
   }, []);
+
+  const handleSaveSupplier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingSupplier) {
+      await supabase.from('suppliers').update(supplierForm).eq('name', editingSupplier.name);
+    } else {
+      await supabase.from('suppliers').insert(supplierForm);
+    }
+    setSupplierModalOpen(false);
+    setEditingSupplier(null);
+    setSupplierForm({ name: '', contact_person: '', phone: '', email: '', lead_time_days: 7, notes: '' });
+    fetchSuppliers();
+  };
+
+  const handleDeleteSupplier = async (name: string) => {
+    if (!window.confirm(`Delete supplier "${name}"?`)) return;
+    await supabase.from('suppliers').delete().eq('name', name);
+    fetchSuppliers();
+  };
+
+  const handleSaveSchedule = async (branchId: string) => {
+    const days = scheduleForm[branchId] || 14;
+    const existing = auditSchedules.find((s: any) => s.branch_id === branchId);
+    const nextDue = new Date();
+    nextDue.setDate(nextDue.getDate() + days);
+    if (existing) {
+      await supabase.from('audit_schedules').update({ frequency_days: days, next_due_date: nextDue.toISOString().split('T')[0], updated_at: new Date().toISOString() }).eq('id', existing.id);
+    } else {
+      await supabase.from('audit_schedules').insert({ branch_id: branchId, frequency_days: days, next_due_date: nextDue.toISOString().split('T')[0] });
+    }
+    fetchSchedules();
+  };
 
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -294,6 +347,8 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
               { id: 'profile', label: 'My Profile', icon: User },
               { id: 'clinic', label: 'Clinic Details', icon: Hospital },
               { id: 'users', label: 'User Management', icon: Users },
+              { id: 'suppliers', label: 'Suppliers', icon: Globe },
+              { id: 'schedules', label: 'Audit Schedule', icon: Bell },
               { id: 'notifications', label: 'Notifications', icon: Bell },
               { id: 'security', label: 'Security', icon: Shield },
               { id: 'data', label: 'Data & Export', icon: Database },
@@ -707,6 +762,83 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
             </motion.div>
           )}
 
+          {activeTab === 'suppliers' && (
+            <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
+              <SettingSection title="Supplier Directory" description="Manage vendor contacts, lead times and notes">
+                <div className="flex justify-end mb-4">
+                  <button onClick={() => { setEditingSupplier(null); setSupplierForm({ name: '', contact_person: '', phone: '', email: '', lead_time_days: 7, notes: '' }); setSupplierModalOpen(true); }}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-bold rounded-xl hover:opacity-90 transition-all">
+                    <Plus size={16} /> Add Supplier
+                  </button>
+                </div>
+                {suppliers.length === 0 ? (
+                  <p className="text-slate-400 text-sm text-center py-8">No suppliers yet. Add your first supplier.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {suppliers.map(s => (
+                      <div key={s.name} className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <p className="text-sm font-extrabold text-slate-900">{s.name}</p>
+                            {s.contact_person && <p className="text-[10px] text-slate-500">{s.contact_person}</p>}
+                          </div>
+                          <div className="flex gap-1">
+                            <button onClick={() => { setEditingSupplier(s); setSupplierForm({ name: s.name, contact_person: s.contact_person || '', phone: s.phone || '', email: s.email || '', lead_time_days: s.lead_time_days || 7, notes: s.notes || '' }); setSupplierModalOpen(true); }}
+                              className="p-1.5 text-slate-400 hover:text-primary rounded-lg hover:bg-white transition-all"><Pencil size={13} /></button>
+                            <button onClick={() => handleDeleteSupplier(s.name)} className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-white transition-all"><Trash2 size={13} /></button>
+                          </div>
+                        </div>
+                        <div className="space-y-1 text-[11px] text-slate-500">
+                          {s.phone && <p className="flex items-center gap-1.5"><Phone size={10} className="text-slate-300" />{s.phone}</p>}
+                          {s.email && <p className="flex items-center gap-1.5"><Mail size={10} className="text-slate-300" />{s.email}</p>}
+                          <p className="flex items-center gap-1.5"><span className="text-slate-300 font-bold">⏱</span>Lead time: <span className="font-bold text-slate-700">{s.lead_time_days || 7} days</span></p>
+                          {s.notes && <p className="text-slate-400 italic mt-1">"{s.notes}"</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </SettingSection>
+            </motion.div>
+          )}
+
+          {activeTab === 'schedules' && (
+            <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
+              <SettingSection title="Audit Schedule" description="Set how often each branch should conduct stock audits">
+                <div className="space-y-4">
+                  {branches.map(b => {
+                    const schedule = auditSchedules.find((s: any) => s.branch_id === b.id);
+                    const nextDue = schedule?.next_due_date ? new Date(schedule.next_due_date) : null;
+                    const isOverdue = nextDue && nextDue < new Date();
+                    return (
+                      <div key={b.id} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-xl gap-4">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{b.name || b.id}</p>
+                          {nextDue ? (
+                            <p className={`text-[10px] font-semibold mt-0.5 ${isOverdue ? 'text-red-500' : 'text-slate-400'}`}>
+                              {isOverdue ? '⚠ Overdue — was due' : 'Next due:'} {nextDue.toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </p>
+                          ) : <p className="text-[10px] text-slate-400">No schedule set</p>}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <input type="number" min={1} max={365}
+                            value={scheduleForm[b.id] ?? 14}
+                            onChange={e => setScheduleForm(prev => ({ ...prev, [b.id]: parseInt(e.target.value) || 14 }))}
+                            className="w-16 text-center bg-white border border-slate-200 rounded-lg text-sm font-bold py-1.5 focus:ring-2 focus:ring-primary/10" />
+                          <span className="text-[10px] text-slate-400 font-semibold">days</span>
+                          <button onClick={() => handleSaveSchedule(b.id)}
+                            className="px-3 py-1.5 bg-primary text-white text-xs font-bold rounded-lg hover:opacity-90 transition-all">
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </SettingSection>
+            </motion.div>
+          )}
+
           {activeTab === 'data' && (
             <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}>
               <SettingSection title="Export & Backup" description="Download your inventory data for external use">
@@ -744,6 +876,61 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
       <footer className="mt-12 mb-8 text-center">
         <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">BIGStock Precision © 2023 | Precision Stock Monitoring</p>
       </footer>
+
+      {/* ==================== SUPPLIER MODAL ==================== */}
+      <AnimatePresence>
+        {supplierModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setSupplierModalOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden z-10">
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-sm font-bold text-slate-800">{editingSupplier ? 'Edit Supplier' : 'Add Supplier'}</h3>
+                <button onClick={() => setSupplierModalOpen(false)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"><Plus size={16} className="rotate-45" /></button>
+              </div>
+              <form onSubmit={handleSaveSupplier} className="p-5 space-y-3">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Supplier Name *</label>
+                  <input required value={supplierForm.name} onChange={e => setSupplierForm(f => ({ ...f, name: e.target.value }))} disabled={!!editingSupplier}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/10 disabled:opacity-60" placeholder="e.g. MedSupply Sdn Bhd" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Contact Person</label>
+                  <input value={supplierForm.contact_person} onChange={e => setSupplierForm(f => ({ ...f, contact_person: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/10" placeholder="e.g. Ahmad bin Ali" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Phone</label>
+                    <input value={supplierForm.phone} onChange={e => setSupplierForm(f => ({ ...f, phone: e.target.value }))}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/10" placeholder="+60 12-345 6789" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Email</label>
+                    <input type="email" value={supplierForm.email} onChange={e => setSupplierForm(f => ({ ...f, email: e.target.value }))}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/10" placeholder="orders@supplier.com" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Lead Time (days)</label>
+                  <input type="number" min={1} value={supplierForm.lead_time_days} onChange={e => setSupplierForm(f => ({ ...f, lead_time_days: parseInt(e.target.value) || 7 }))}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/10" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Notes</label>
+                  <textarea value={supplierForm.notes} onChange={e => setSupplierForm(f => ({ ...f, notes: e.target.value }))} rows={2}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/10 resize-none" placeholder="Payment terms, preferred contact method..." />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={() => setSupplierModalOpen(false)} className="flex-1 py-2.5 border border-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50">Cancel</button>
+                  <button type="submit" className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90">{editingSupplier ? 'Save Changes' : 'Add Supplier'}</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ==================== USER MODAL ==================== */}
       <AnimatePresence>

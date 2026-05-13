@@ -361,30 +361,36 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   };
 
   const handleGoodsReceived = async (order: ProcurementOrder) => {
+    const targetBranch = activeBranch === 'Main Branch' ? (order.branchId || allBranches[0]?.id) : activeBranch;
     try {
-      // Update inventory quantities for each line item
       for (const line of order.items) {
         const invItem = items.find(i => i.sku === line.sku);
-        if (invItem) {
-          const newTotal = invItem.total + line.quantity;
-          const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
-          await supabase.from('inventory').update({ total: newTotal, status, last_audit: new Date().toISOString() }).eq('id', invItem.id);
+        if (!invItem) continue;
 
-          // Record stock-in transaction
-          await supabase.from('inventory_transactions').insert({
-            type: 'STOCK_IN',
-            item_id: invItem.id,
-            item_name: invItem.name,
-            quantity: line.quantity,
-            unit: line.unit,
-            from_location: `PO: ${order.poNumber} (${order.supplier})`,
-            to_location: activeBranch,
-            performed_by: user?.id
-          });
+        const newTotal = invItem.total + line.quantity;
+        const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
+        await supabase.from('inventory').update({ total: newTotal, status, last_audit: new Date().toISOString() }).eq('id', invItem.id);
+
+        // Update branch_inventory for the receiving branch
+        const { data: biRow } = await supabase.from('branch_inventory').select('id, quantity').eq('branch_id', targetBranch).eq('item_id', invItem.id).maybeSingle();
+        if (biRow) {
+          await supabase.from('branch_inventory').update({ quantity: biRow.quantity + line.quantity }).eq('id', biRow.id);
+        } else {
+          await supabase.from('branch_inventory').insert({ branch_id: targetBranch, item_id: invItem.id, quantity: line.quantity });
         }
+
+        await supabase.from('inventory_transactions').insert({
+          type: 'STOCK_IN',
+          item_id: invItem.id,
+          item_name: invItem.name,
+          quantity: line.quantity,
+          unit: line.unit,
+          from_location: `PO: ${order.poNumber} (${order.supplier})`,
+          to_location: targetBranch,
+          performed_by: user?.id
+        });
       }
 
-      // Update PO status
       await supabase.from('procurement_orders').update({ status: 'RECEIVED', payment_status: 'UNPAID', updated_at: new Date().toISOString() }).eq('id', order.id);
       fetchData();
     } catch (err) {

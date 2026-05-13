@@ -57,7 +57,8 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
     unit: 'Units',
     price: 0,
     min_stock: 20,
-    item_type: 'Stock' as 'Stock' | 'Asset'
+    item_type: 'Stock' as 'Stock' | 'Asset',
+    expiry_date: ''
   });
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -209,7 +210,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
 
   const openAddModal = () => {
     const sku = generateNextSku('Stock');
-    setNewItem({ name: '', subtext: '', category: categories[0] || '', sku, total: 0, unit: 'Units', price: 0, min_stock: 20, item_type: 'Stock' });
+    setNewItem({ name: '', subtext: '', category: categories[0] || '', sku, total: 0, unit: 'Units', price: 0, min_stock: 20, item_type: 'Stock', expiry_date: '' });
     setEditingItem(null);
     setIsModalOpen(true);
   };
@@ -306,7 +307,8 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
       unit: item.unit,
       price: item.price || 0,
       min_stock: item.min_stock || 20,
-      item_type: item.item_type || 'Stock'
+      item_type: item.item_type || 'Stock',
+      expiry_date: (item as any).expiry_date || ''
     });
     setIsModalOpen(true);
   };
@@ -314,7 +316,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingItem(null);
-    setNewItem({ name: '', subtext: '', category: categories[0] || '', sku: '', total: 0, unit: 'Units', price: 0, min_stock: 20, item_type: 'Stock' as 'Stock' | 'Asset' });
+    setNewItem({ name: '', subtext: '', category: categories[0] || '', sku: '', total: 0, unit: 'Units', price: 0, min_stock: 20, item_type: 'Stock' as 'Stock' | 'Asset', expiry_date: '' });
   };
 
   const handleDeleteItem = async (id: string) => {
@@ -583,6 +585,17 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-slate-900 leading-tight">{item.name}</p>
                 {item.subtext && <p className="text-[10px] text-slate-400 uppercase mt-0.5">{item.subtext}</p>}
+                {(item as any).expiry_date && (() => {
+                  const exp = new Date((item as any).expiry_date);
+                  const daysLeft = Math.ceil((exp.getTime() - Date.now()) / 86400000);
+                  return daysLeft <= 0
+                    ? <span className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded mt-0.5 inline-block">EXPIRED</span>
+                    : daysLeft <= 30
+                    ? <span className="text-[9px] font-bold text-orange-600 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded mt-0.5 inline-block">EXP {daysLeft}d</span>
+                    : daysLeft <= 90
+                    ? <span className="text-[9px] font-bold text-yellow-600 bg-yellow-50 border border-yellow-200 px-1.5 py-0.5 rounded mt-0.5 inline-block">EXP {Math.ceil(daysLeft/30)}mo</span>
+                    : null;
+                })()}
               </div>
             </div>
             <div className="flex items-center gap-2 mb-3">
@@ -653,6 +666,17 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
                     <div>
                       <p className="text-sm font-bold text-slate-900">{item.name}</p>
                       {!isAdmin && <p className="text-[10px] text-slate-400 uppercase tracking-tight">{item.subtext}</p>}
+                      {(item as any).expiry_date && (() => {
+                        const exp = new Date((item as any).expiry_date);
+                        const daysLeft = Math.ceil((exp.getTime() - Date.now()) / 86400000);
+                        return daysLeft <= 0
+                          ? <span className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded inline-block">EXPIRED</span>
+                          : daysLeft <= 30
+                          ? <span className="text-[9px] font-bold text-orange-600 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded inline-block">EXP {daysLeft}d</span>
+                          : daysLeft <= 90
+                          ? <span className="text-[9px] font-bold text-yellow-600 bg-yellow-50 border border-yellow-200 px-1.5 py-0.5 rounded inline-block">EXP {Math.ceil(daysLeft/30)}mo</span>
+                          : null;
+                      })()}
                     </div>
                   </div>
                 </td>
@@ -823,6 +847,15 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
                       required
                       value={newItem.min_stock}
                       onChange={e => setNewItem({...newItem, min_stock: parseInt(e.target.value) || 0})}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/10 transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Expiry Date (optional)</label>
+                    <input
+                      type="date"
+                      value={newItem.expiry_date}
+                      onChange={e => setNewItem({...newItem, expiry_date: e.target.value})}
                       className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/10 transition-all"
                     />
                   </div>

@@ -22,7 +22,7 @@ interface MultiBranchItem {
   total: number;
 }
 
-export function MultiBranchView({ onOpenTransfer }: { onOpenTransfer: () => void, key?: string }) {
+export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () => void, user?: any, key?: string }) {
   const [multiBranchData, setMultiBranchData] = useState<MultiBranchItem[]>([]);
   const [branchNames, setBranchNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -197,11 +197,12 @@ export function MultiBranchView({ onOpenTransfer }: { onOpenTransfer: () => void
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Route</th>
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Qty</th>
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Status</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Actions</th>
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Date</th>
+                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                <PendingTransfersList />
+                <PendingTransfersList user={user} />
               </tbody>
             </table>
           </div>

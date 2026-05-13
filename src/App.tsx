@@ -9,7 +9,8 @@ import {
   ArrowRightLeft, LogOut,
   Home, Package, BarChart3, GitBranch,
   MoreHorizontal, ChevronDown, X,
-  Settings, DollarSign, ClipboardCheck
+  Settings, DollarSign, ClipboardCheck,
+  AlertTriangle, Clock, ArrowLeftRight, CalendarX
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase } from './supabase';
@@ -38,6 +39,9 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
   const [mobileBranchOpen, setMobileBranchOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<{ id: string; type: 'stock' | 'transfer' | 'expiry' | 'audit'; message: string; sub: string }[]>([]);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
@@ -111,6 +115,77 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    const fetchNotifications = async () => {
+      const items: typeof notifications = [];
+
+      // Critical stock
+      const { data: lowStock } = await supabase
+        .from('branch_inventory')
+        .select('item_id, quantity, inventory(name, min_stock)')
+        .lt('quantity', 5);
+      for (const row of lowStock || []) {
+        const inv = row.inventory as any;
+        if (inv) items.push({ id: `stock-${row.item_id}`, type: 'stock', message: `${inv.name} critically low`, sub: `Only ${row.quantity} units remaining` });
+      }
+
+      // Pending transfers (admin only)
+      if (user.role === 'Admin') {
+        const { data: pending } = await supabase
+          .from('stock_transfers')
+          .select('id, item_id, quantity, inventory(name)')
+          .eq('status', 'PENDING');
+        for (const t of pending || []) {
+          const inv = t.inventory as any;
+          items.push({ id: `transfer-${t.id}`, type: 'transfer', message: `Transfer request awaiting`, sub: `${inv?.name || 'Item'} × ${t.quantity}` });
+        }
+      }
+
+      // Expiring items (within 30 days)
+      const today = new Date();
+      const in30 = new Date(today.getTime() + 30 * 86400000).toISOString().slice(0, 10);
+      const { data: expiring } = await supabase
+        .from('inventory')
+        .select('id, name, expiry_date')
+        .not('expiry_date', 'is', null)
+        .lte('expiry_date', in30);
+      for (const item of expiring || []) {
+        const daysLeft = Math.ceil((new Date((item as any).expiry_date).getTime() - today.getTime()) / 86400000);
+        items.push({ id: `expiry-${item.id}`, type: 'expiry', message: `${item.name} expiring soon`, sub: daysLeft <= 0 ? 'Already expired' : `Expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}` });
+      }
+
+      // Overdue audit schedules
+      const { data: schedules } = await supabase
+        .from('audit_schedules')
+        .select('id, branch_id, frequency_days, last_audit_date');
+      for (const s of schedules || []) {
+        if (!s.last_audit_date) {
+          items.push({ id: `audit-${s.id}`, type: 'audit', message: `Audit overdue`, sub: `Branch ${s.branch_id} — never audited` });
+        } else {
+          const nextDue = new Date(s.last_audit_date);
+          nextDue.setDate(nextDue.getDate() + (s.frequency_days || 30));
+          if (nextDue < today) {
+            const overdueDays = Math.ceil((today.getTime() - nextDue.getTime()) / 86400000);
+            items.push({ id: `audit-${s.id}`, type: 'audit', message: `Audit overdue`, sub: `Branch ${s.branch_id} — ${overdueDays}d overdue` });
+          }
+        }
+      }
+
+      setNotifications(items);
+    };
+    fetchNotifications();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -168,7 +243,73 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2 md:gap-4">
-          <button onClick={() => alert('Notifications coming soon.')} className="p-2 text-slate-500 hover:text-primary transition-colors"><Bell size={20} /></button>
+          <div className="relative" ref={notifRef}>
+            <button
+              onClick={() => setNotifOpen(v => !v)}
+              className="relative p-2 text-slate-500 hover:text-primary transition-colors"
+            >
+              <Bell size={20} />
+              {notifications.length > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 bg-tertiary text-white text-[9px] font-extrabold rounded-full flex items-center justify-center leading-none">
+                  {notifications.length > 9 ? '9+' : notifications.length}
+                </span>
+              )}
+            </button>
+            <AnimatePresence>
+              {notifOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 z-[100] overflow-hidden"
+                >
+                  <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                    <span className="text-sm font-extrabold text-slate-900">Notifications</span>
+                    {notifications.length > 0 && (
+                      <span className="px-2 py-0.5 bg-tertiary/10 text-tertiary text-[10px] font-bold rounded-full">{notifications.length} alerts</span>
+                    )}
+                  </div>
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-50">
+                    {notifications.length === 0 ? (
+                      <div className="px-4 py-8 text-center">
+                        <Bell size={24} className="text-slate-200 mx-auto mb-2" />
+                        <p className="text-sm text-slate-400 font-semibold">All clear — no alerts</p>
+                      </div>
+                    ) : notifications.map(n => (
+                      <div key={n.id} className="px-4 py-3 flex items-start gap-3 hover:bg-slate-50/60 transition-colors">
+                        <div className={`mt-0.5 flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
+                          n.type === 'stock' ? 'bg-red-50 text-red-500' :
+                          n.type === 'transfer' ? 'bg-violet-50 text-violet-500' :
+                          n.type === 'expiry' ? 'bg-amber-50 text-amber-500' :
+                          'bg-blue-50 text-blue-500'
+                        }`}>
+                          {n.type === 'stock' && <AlertTriangle size={13} />}
+                          {n.type === 'transfer' && <ArrowLeftRight size={13} />}
+                          {n.type === 'expiry' && <Clock size={13} />}
+                          {n.type === 'audit' && <CalendarX size={13} />}
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-slate-800 leading-tight">{n.message}</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{n.sub}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {notifications.length > 0 && (
+                    <div className="px-4 py-2.5 border-t border-slate-100">
+                      <button
+                        onClick={() => setNotifications([])}
+                        className="text-[11px] font-bold text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        Clear all notifications
+                      </button>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
           <button onClick={() => alert('Help & Documentation coming soon.')} className="hidden md:block p-2 text-slate-500 hover:text-primary transition-colors"><HelpCircle size={20} /></button>
           <div className="flex items-center gap-2">
             <div className="text-right hidden sm:block">
@@ -234,7 +375,7 @@ export default function App() {
             {currentView === 'dashboard' ? (
               <DashboardView key={`dashboard-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} user={user} />
             ) : currentView === 'multi-branch' ? (
-              <MultiBranchView key="multi-branch" onOpenTransfer={() => setIsTransferModalOpen(true)} />
+              <MultiBranchView key="multi-branch" onOpenTransfer={() => setIsTransferModalOpen(true)} user={user} />
             ) : currentView === 'stock-comparison' ? (
               <StockComparisonView key="stock-comparison" />
             ) : currentView === 'inventory' ? (
@@ -428,6 +569,7 @@ export default function App() {
       <TransferModal
         isOpen={isTransferModalOpen}
         onClose={() => setIsTransferModalOpen(false)}
+        user={user}
       />
     </div>
   );
