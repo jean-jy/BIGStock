@@ -174,9 +174,10 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
       await supabase.from('audit_logs').update({ is_recent: false }).neq('id', auditLog.id);
 
       if (mismatches.length > 0) {
-        await supabase.from('audit_mismatches').insert(
+        const { error: mismatchErr } = await supabase.from('audit_mismatches').insert(
           mismatches.map(m => ({ audit_log_id: auditLog.id, item_id: m.id, name: m.name, sku: m.sku, expected: m.expected, actual: m.actual, remark: m.remark }))
         );
+        if (mismatchErr) throw mismatchErr;
       }
 
       // Flag items marked for restock — stored per-branch on branch_inventory

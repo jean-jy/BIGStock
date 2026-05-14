@@ -7,7 +7,11 @@
       "mcp__claude_ai_Supabase__execute_sql",
       "Bash(npx vite *)",
       "mcp__payroll-system__execute_sql",
-      "mcp__payroll-system__list_tables"
+      "mcp__payroll-system__list_tables",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\jiayi\\\\OneDrive\\\\Desktop\\\\Coding\\\\Big-Inventory-main\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx|js\\)$\")",
+      "mcp__claude_ai_Supabase__list_projects"
     ]
   }
 }
