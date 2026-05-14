@@ -44,6 +44,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const [allBranches, setAllBranches] = useState<any[]>([]);
   const [viewType, setViewType] = useState<'consolidated' | 'branch'>('branch');
   const [branchInventory, setBranchInventory] = useState<Record<string, { qty: number; flagged: boolean }>>({});
+  const [consolidatedQty, setConsolidatedQty] = useState<Record<string, number>>({});
   const [approvingAuditId, setApprovingAuditId] = useState<string | null>(null);
   const [restockByBranch, setRestockByBranch] = useState<Record<string, { name: string; items: { id: string; name: string; sku: string; category: string; current: number; minStock: number; unit: string; flagged: boolean; belowMin: boolean }[] }>>({});
   const [restockCollapsed, setRestockCollapsed] = useState(false);
@@ -96,6 +97,13 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         binv[row.item_id] = { qty: row.quantity, flagged: !!row.is_reorder_flagged };
       });
       setBranchInventory(binv);
+
+      // Compute consolidated totals by summing all branch quantities per item
+      const cqty: Record<string, number> = {};
+      (allBranchInvResult.data || []).forEach((row: any) => {
+        cqty[row.item_id] = (cqty[row.item_id] || 0) + (row.quantity || 0);
+      });
+      setConsolidatedQty(cqty);
 
       setItems((invResult.data || []).map(i => ({ ...i, category: normalizeCategory(i.category || ''), lastAudit: i.last_audit ? new Date(i.last_audit).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Never' })));
       setTransactions(txResult.data || []);
@@ -545,11 +553,11 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
 
   const totalSKUs = items.length;
   const criticalStock = items.filter(item => {
-    const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id]?.qty ?? 0);
+    const qty = viewType === 'consolidated' ? (consolidatedQty[item.id] ?? 0) : (branchInventory[item.id]?.qty ?? 0);
     return qty < (item.min_stock || 20);
   }).length;
   const stockValue = items.reduce((sum, item) => {
-    const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id]?.qty ?? 0);
+    const qty = viewType === 'consolidated' ? (consolidatedQty[item.id] ?? 0) : (branchInventory[item.id]?.qty ?? 0);
     return sum + (qty * (item.price || 0));
   }, 0);
 
@@ -896,7 +904,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
           {/* Mobile inventory card list */}
           <div className="flex flex-col gap-3 md:hidden">
             {paginatedItems.map((item, idx, arr) => {
-              const qty = viewType === 'consolidated' ? item.total : (branchInventory[item.id]?.qty ?? 0);
+              const qty = viewType === 'consolidated' ? (consolidatedQty[item.id] ?? 0) : (branchInventory[item.id]?.qty ?? 0);
               const isCritical = qty < (item.min_stock || 20);
               const showCatHeader = idx === 0 || item.category !== arr[idx - 1].category;
               return (
@@ -1015,9 +1023,9 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                       </td>
                       <td className={`${tdCls} text-xs font-mono text-slate-400`}>{item.sku}</td>
                       <td className={`${tdCls} text-sm font-bold ${
-                        (viewType === 'consolidated' ? item.total : (branchInventory[item.id]?.qty ?? 0)) < (item.min_stock || 20) ? 'text-tertiary' : 'text-slate-900'
+                        (viewType === 'consolidated' ? (consolidatedQty[item.id] ?? 0) : (branchInventory[item.id]?.qty ?? 0)) < (item.min_stock || 20) ? 'text-tertiary' : 'text-slate-900'
                       }`}>
-                        {viewType === 'consolidated' ? item.total.toLocaleString() : (branchInventory[item.id]?.qty ?? 0).toLocaleString()}
+                        {viewType === 'consolidated' ? (consolidatedQty[item.id] ?? 0).toLocaleString() : (branchInventory[item.id]?.qty ?? 0).toLocaleString()}
                       </td>
                       <td className={`${tdCls} text-xs font-medium text-slate-500`}>{item.lastAudit}</td>
                       <td className={tdCls}>

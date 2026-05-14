@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(npx vite *)",
+      "mcp__payroll-system__execute_sql",
+      "mcp__payroll-system__list_tables"
+    ]
+  }
+}
