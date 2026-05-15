@@ -437,8 +437,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
     setApprovingAuditId(log.id);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const approverName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Admin';
+      const approverName = user?.displayName || user?.email || 'Admin';
 
       // 1. Use already-loaded mismatch items; fall back to DB query if missing
       let mismatches: { id: string; name: string; expected: number; actual: number }[] = [];
@@ -496,25 +495,29 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
             from_location: 'Stock Audit',
             to_location: branchId,
             remarks: `Audit approval by ${approverName}`,
-            performed_by: session?.user?.id
+            performed_by: user?.id
           }))
         );
         if (txErr) throw txErr;
       }
 
-      // 5. Parallel inventory updates — throw if any fail
+      // 5. Inventory updates in batches of 10 to avoid rate limits
       if (mismatches.length > 0) {
-        const updateResults = await Promise.all(
-          mismatches.map(item => {
-            const newTotal = totalByItem[item.id] ?? item.actual;
-            const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
-            return supabase.from('inventory').update({
-              total: newTotal, status, last_audit: new Date().toISOString()
-            }).eq('id', item.id);
-          })
-        );
-        const failedUpdates = updateResults.filter(r => r.error);
-        if (failedUpdates.length > 0) throw failedUpdates[0].error;
+        const BATCH_SIZE = 10;
+        for (let i = 0; i < mismatches.length; i += BATCH_SIZE) {
+          const batch = mismatches.slice(i, i + BATCH_SIZE);
+          const updateResults = await Promise.all(
+            batch.map(item => {
+              const newTotal = totalByItem[item.id] ?? item.actual;
+              const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
+              return supabase.from('inventory').update({
+                total: newTotal, status, last_audit: new Date().toISOString()
+              }).eq('id', item.id);
+            })
+          );
+          const failedUpdates = updateResults.filter(r => r.error);
+          if (failedUpdates.length > 0) throw failedUpdates[0].error;
+        }
       }
 
       // 6. Mark audit approved — only reached if all data updates succeeded
@@ -563,17 +566,21 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         totalByItem[row.item_id] = (totalByItem[row.item_id] || 0) + (row.quantity || 0);
       }
 
-      const updateResults = await Promise.all(
-        mismatches.map(item => {
-          const newTotal = totalByItem[item.id] ?? item.actual;
-          const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
-          return supabase.from('inventory').update({
-            total: newTotal, status, last_audit: new Date().toISOString()
-          }).eq('id', item.id);
-        })
-      );
-      const failedUpdates = updateResults.filter(r => r.error);
-      if (failedUpdates.length > 0) throw failedUpdates[0].error;
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < mismatches.length; i += BATCH_SIZE) {
+        const batch = mismatches.slice(i, i + BATCH_SIZE);
+        const updateResults = await Promise.all(
+          batch.map(item => {
+            const newTotal = totalByItem[item.id] ?? item.actual;
+            const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
+            return supabase.from('inventory').update({
+              total: newTotal, status, last_audit: new Date().toISOString()
+            }).eq('id', item.id);
+          })
+        );
+        const failedUpdates = updateResults.filter(r => r.error);
+        if (failedUpdates.length > 0) throw failedUpdates[0].error;
+      }
 
       alert(`Re-sync complete — ${mismatches.length} item(s) updated for ${branchId}.`);
       fetchData();
