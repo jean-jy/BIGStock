@@ -462,6 +462,12 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
 
       const branchId = log.branch.replace(/ Branch$/, '');
 
+      // Validate branchId exists in branches table before touching branch_inventory
+      const branchExists = allBranches.some(b => b.id === branchId);
+      if (!branchExists) {
+        throw new Error(`Branch "${branchId}" not found. Please update the user profile's assigned branch to match a valid branch ID (${allBranches.map(b => b.id).join(', ')}).`);
+      }
+
       // 2. Delete existing rows then insert fresh ones (avoids upsert 409 conflict issues)
       if (mismatches.length > 0) {
         await supabase.from('branch_inventory')
