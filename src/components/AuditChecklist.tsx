@@ -154,9 +154,13 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
 
       const status = mismatches.length === 0 ? 'ZERO DISCREPANCY' : `${mismatches.length} ITEMS MISMATCH`;
 
-      const { data: auditLog, error: logError } = await supabase
+      // Generate UUID client-side to avoid .select().single() null-return issue
+      const auditLogId = crypto.randomUUID();
+
+      const { error: logError } = await supabase
         .from('audit_logs')
         .insert({
+          id: auditLogId,
           date: new Date(auditDate).toLocaleDateString('en-MY', { year: 'numeric', month: 'short', day: 'numeric' }),
           branch: `${selectedBranch} Branch`,
           auditor: auditorName,
@@ -165,17 +169,15 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
           status,
           approval_status: 'PENDING',
           is_recent: true
-        })
-        .select('id')
-        .single();
+        });
 
       if (logError) throw logError;
 
-      await supabase.from('audit_logs').update({ is_recent: false }).neq('id', auditLog.id);
+      await supabase.from('audit_logs').update({ is_recent: false }).neq('id', auditLogId);
 
       if (mismatches.length > 0) {
         const { error: mismatchErr } = await supabase.from('audit_mismatches').insert(
-          mismatches.map(m => ({ audit_log_id: auditLog.id, item_id: m.id, name: m.name, sku: m.sku, expected: m.expected, actual: m.actual, remark: m.remark }))
+          mismatches.map(m => ({ audit_log_id: auditLogId, item_id: m.id, name: m.name, sku: m.sku, expected: m.expected, actual: m.actual, remark: m.remark || null }))
         );
         if (mismatchErr) throw mismatchErr;
       }
