@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowRightLeft, RefreshCw } from 'lucide-react';
+import { ArrowRightLeft, RefreshCw, Download } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { PendingTransfersList } from './PendingTransfersList';
@@ -62,6 +62,26 @@ export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () =
     fetchData();
   }, []);
 
+  const exportToCSV = () => {
+    const headers = ['Item Name', 'Category', ...branchNames, 'Total Network'];
+    const rows = multiBranchData.map(item => [
+      item.name,
+      item.category,
+      ...branchNames.map(b => item.branches[b] ?? 0),
+      item.total
+    ]);
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `multi-branch-inventory-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.98 }}
@@ -76,6 +96,14 @@ export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () =
           <p className="text-slate-500 font-inter text-sm mt-1">Comparative stock analysis across all branches.</p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={exportToCSV}
+            disabled={loading || multiBranchData.length === 0}
+            className="flex items-center gap-2 px-5 py-2.5 border border-slate-200 text-slate-700 text-sm font-bold shadow-sm hover:bg-white transition-colors rounded-md disabled:opacity-50"
+          >
+            <Download size={16} className="text-primary" />
+            Export CSV
+          </button>
           <button
             onClick={onOpenTransfer}
             className="flex items-center gap-2 px-5 py-2.5 bg-primary-container text-white text-sm font-bold shadow-sm hover:opacity-90 transition-opacity rounded-md"
