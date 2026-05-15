@@ -141,8 +141,8 @@ create table public.audit_mismatches (
   item_id uuid references public.inventory(id) on delete set null,
   name text not null,
   sku text not null,
-  expected integer not null,
-  actual integer not null,
+  expected numeric(10,2) not null,
+  actual numeric(10,2) not null,
   remark text
 );
 

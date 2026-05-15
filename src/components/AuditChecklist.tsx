@@ -142,13 +142,13 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
       const auditorName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Unknown';
 
       const mismatches = auditItems
-        .filter(item => counts[item.id] !== undefined && counts[item.id] !== '' && Math.round(Number(counts[item.id])) !== getExpected(item))
+        .filter(item => counts[item.id] !== undefined && counts[item.id] !== '' && Number(counts[item.id]) !== getExpected(item))
         .map(item => ({
           id: item.id,
           name: item.name,
           sku: item.sku,
           expected: getExpected(item),
-          actual: Math.round(Number(counts[item.id])),
+          actual: Number(counts[item.id]),
           remark: remarks[item.id] || undefined
         }));
 
@@ -370,10 +370,10 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                       type="number"
                       inputMode="numeric"
                       pattern="[0-9]*"
-                      step="1"
+                      step="0.5"
                       min="0"
                       value={counts[item.id] ?? ''}
-                      onChange={e => { const v = e.target.value; if (v === '' || /^\d+$/.test(v)) setCount(item.id, v); }}
+                      onChange={e => setCount(item.id, e.target.value)}
                       placeholder={`Expected: ${getExpected(item)}`}
                       className={`w-full text-center text-lg font-extrabold py-2.5 rounded-xl border outline-none transition-all ${
                         hasMismatch(item)
@@ -478,10 +478,10 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
                             </button>
                             <input
                               type="number"
-                              step="1"
+                              step="0.5"
                               min="0"
                               value={counts[item.id] ?? ''}
-                              onChange={e => { const v = e.target.value; if (v === '' || /^\d+$/.test(v)) setCount(item.id, v); }}
+                              onChange={e => setCount(item.id, e.target.value)}
                               className={`flex-1 text-center text-sm font-bold px-2 py-1.5 rounded-lg border outline-none transition-all ${hasMismatch(item) ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-slate-200 bg-slate-50 focus:border-primary'}`}
                               placeholder="0"
                             />
