@@ -69,7 +69,7 @@ create table public.inventory (
   subtext text,
   category text not null,
   sku text not null unique,
-  total integer not null default 0,
+  total numeric(10,2) not null default 0,
   unit text not null default 'Units',
   status text not null default 'HEALTHY' check (status in ('REORDER', 'HEALTHY', 'BALANCED')),
   price numeric(10,2) default 0,
@@ -83,7 +83,7 @@ create table public.branch_inventory (
   id uuid primary key default gen_random_uuid(),
   branch_id text not null references public.branches(id) on delete cascade,
   item_id uuid not null references public.inventory(id) on delete cascade,
-  quantity integer not null default 0,
+  quantity numeric(10,2) not null default 0,
   updated_at timestamptz not null default now(),
   unique (branch_id, item_id)
 );
@@ -94,7 +94,7 @@ create table public.inventory_transactions (
   type text not null check (type in ('STOCK_IN', 'TRANSFER', 'ADJUSTMENT', 'USAGE')),
   item_id uuid references public.inventory(id) on delete set null,
   item_name text not null,
-  quantity integer not null,
+  quantity numeric(10,2) not null,
   unit text not null default 'Units',
   from_location text,
   to_location text,
