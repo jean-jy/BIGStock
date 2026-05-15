@@ -462,13 +462,16 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
 
       const branchId = log.branch.replace(/ Branch$/, '');
 
-      // 2. Batch upsert branch_inventory
+      // 2. Delete existing rows then insert fresh ones (avoids upsert 409 conflict issues)
       if (mismatches.length > 0) {
-        const { error: upsertErr } = await supabase.from('branch_inventory').upsert(
-          mismatches.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual })),
-          { onConflict: 'item_id,branch_id' }
+        await supabase.from('branch_inventory')
+          .delete()
+          .eq('branch_id', branchId)
+          .in('item_id', mismatches.map(m => m.id));
+        const { error: insertErr } = await supabase.from('branch_inventory').insert(
+          mismatches.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual }))
         );
-        if (upsertErr) throw upsertErr;
+        if (insertErr) throw insertErr;
       }
 
       // 3. Re-fetch all branch quantities for affected items to compute correct totals
@@ -550,11 +553,14 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       }
       const branchId = log.branch.replace(/ Branch$/, '');
 
-      const { error: upsertErr } = await supabase.from('branch_inventory').upsert(
-        mismatches.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual })),
-        { onConflict: 'item_id,branch_id' }
+      await supabase.from('branch_inventory')
+        .delete()
+        .eq('branch_id', branchId)
+        .in('item_id', mismatches.map(m => m.id));
+      const { error: insertErr } = await supabase.from('branch_inventory').insert(
+        mismatches.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual }))
       );
-      if (upsertErr) throw upsertErr;
+      if (insertErr) throw insertErr;
 
       const itemIds = mismatches.map(m => m.id);
       const { data: allBranchRows, error: branchFetchErr } = await supabase
