@@ -121,14 +121,16 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         approvedByName: log.approved_by_name,
         approvedAt: log.approved_at,
         isRecent: log.is_recent,
-        mismatchedItems: log.audit_mismatches?.length > 0 ? log.audit_mismatches.map((m: any) => ({
-          id: m.item_id,
-          name: m.name,
-          sku: m.sku,
-          expected: m.expected,
-          actual: m.actual,
-          remark: m.remark
-        })) : undefined
+        mismatchedItems: log.audit_mismatches?.filter((m: any) => m.is_mismatch !== false).length > 0
+          ? log.audit_mismatches.filter((m: any) => m.is_mismatch !== false).map((m: any) => ({
+              id: m.item_id,
+              name: m.name,
+              sku: m.sku,
+              expected: m.expected,
+              actual: m.actual,
+              remark: m.remark
+            }))
+          : undefined
       })));
 
       // Map procurement orders
@@ -439,26 +441,27 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
     try {
       const approverName = user?.displayName || user?.email || 'Admin';
 
-      // 1. Use already-loaded mismatch items; fall back to DB query if missing
-      let mismatches: { id: string; name: string; expected: number; actual: number }[] = [];
-      const loadedItems = (log.mismatchedItems || []).filter(m => m.id);
-      if (loadedItems.length > 0) {
-        mismatches = loadedItems.map(m => ({ id: m.id, name: m.name, expected: m.expected, actual: m.actual }));
-      } else {
-        const { data: rows, error: fetchErr } = await supabase
-          .from('audit_mismatches')
-          .select('*')
-          .eq('audit_log_id', log.id);
-        if (fetchErr) throw fetchErr;
-        mismatches = (rows || [])
-          .filter((m: any) => m.item_id)
-          .map((m: any) => ({
-            id: m.item_id as string,
-            name: m.name as string,
-            expected: m.expected as number,
-            actual: m.actual as number,
-          }));
-      }
+      // 1. Fetch ALL counted items for this audit from audit_mismatches
+      const { data: auditRows, error: fetchErr } = await supabase
+        .from('audit_mismatches')
+        .select('*')
+        .eq('audit_log_id', log.id);
+      if (fetchErr) throw fetchErr;
+
+      const allAuditedItems = (auditRows || [])
+        .filter((m: any) => m.item_id)
+        .map((m: any) => ({
+          id: m.item_id as string,
+          name: m.name as string,
+          expected: m.expected as number,
+          actual: m.actual as number,
+          isMismatch: m.is_mismatch !== false,
+        }));
+
+      // Fall back to mismatchedItems from the loaded log if audit_mismatches has no rows
+      const itemsToUpdate = allAuditedItems.length > 0
+        ? allAuditedItems
+        : (log.mismatchedItems || []).filter(m => m.id).map(m => ({ ...m, isMismatch: true }));
 
       const branchId = log.branch.replace(/ Branch$/, '');
 
@@ -468,20 +471,20 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         throw new Error(`Branch "${branchId}" not found. Please update the user profile's assigned branch to match a valid branch ID (${allBranches.map(b => b.id).join(', ')}).`);
       }
 
-      // 2. Delete existing rows then insert fresh ones (avoids upsert 409 conflict issues)
-      if (mismatches.length > 0) {
+      // 2. Update branch_inventory for ALL audited items
+      if (itemsToUpdate.length > 0) {
         await supabase.from('branch_inventory')
           .delete()
           .eq('branch_id', branchId)
-          .in('item_id', mismatches.map(m => m.id));
+          .in('item_id', itemsToUpdate.map(m => m.id));
         const { error: insertErr } = await supabase.from('branch_inventory').insert(
-          mismatches.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual }))
+          itemsToUpdate.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual }))
         );
         if (insertErr) throw insertErr;
       }
 
       // 3. Re-fetch all branch quantities for affected items to compute correct totals
-      const itemIds = mismatches.map(m => m.id);
+      const itemIds = itemsToUpdate.map(m => m.id);
       const { data: allBranchRows, error: branchFetchErr } = itemIds.length > 0
         ? await supabase.from('branch_inventory').select('item_id, quantity').in('item_id', itemIds)
         : { data: [], error: null };
@@ -492,10 +495,11 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         totalByItem[row.item_id] = (totalByItem[row.item_id] || 0) + (row.quantity || 0);
       }
 
-      // 4. Batch insert adjustment transactions
-      if (mismatches.length > 0) {
+      // 4. Record adjustment transactions only for items with actual discrepancies
+      const discrepancies = itemsToUpdate.filter(m => m.isMismatch);
+      if (discrepancies.length > 0) {
         const { error: txErr } = await supabase.from('inventory_transactions').insert(
-          mismatches.map(m => ({
+          discrepancies.map(m => ({
             type: 'ADJUSTMENT',
             item_id: m.id,
             item_name: m.name,
@@ -510,11 +514,11 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         if (txErr) throw txErr;
       }
 
-      // 5. Inventory updates in batches of 10 to avoid rate limits
-      if (mismatches.length > 0) {
+      // 5. Update last_audit (and totals/status) for ALL audited items in batches of 10
+      if (itemsToUpdate.length > 0) {
         const BATCH_SIZE = 10;
-        for (let i = 0; i < mismatches.length; i += BATCH_SIZE) {
-          const batch = mismatches.slice(i, i + BATCH_SIZE);
+        for (let i = 0; i < itemsToUpdate.length; i += BATCH_SIZE) {
+          const batch = itemsToUpdate.slice(i, i + BATCH_SIZE);
           const updateResults = await Promise.all(
             batch.map(item => {
               const newTotal = totalByItem[item.id] ?? item.actual;
@@ -537,7 +541,7 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
       }).eq('id', log.id);
       if (approveErr) throw approveErr;
 
-      alert(`Audit approved — ${mismatches.length} item(s) updated for ${branchId}.`);
+      alert(`Audit approved — ${itemsToUpdate.length} item(s) updated for ${branchId} (${discrepancies.length} discrepanc${discrepancies.length === 1 ? 'y' : 'ies'} corrected).`);
       fetchData();
     } catch (err) {
       console.error('Error approving audit:', err);

@@ -141,17 +141,19 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
       const { data: { session } } = await supabase.auth.getSession();
       const auditorName = session?.user?.user_metadata?.full_name || session?.user?.email || 'Unknown';
 
-      const mismatches = auditItems
-        .filter(item => counts[item.id] !== undefined && counts[item.id] !== '' && Number(counts[item.id]) !== getExpected(item))
+      const allCountedItems = auditItems
+        .filter(item => counts[item.id] !== undefined && counts[item.id] !== '')
         .map(item => ({
           id: item.id,
           name: item.name,
           sku: item.sku,
           expected: getExpected(item),
           actual: Number(counts[item.id]),
-          remark: remarks[item.id] || undefined
+          remark: remarks[item.id] || undefined,
+          is_mismatch: Number(counts[item.id]) !== getExpected(item),
         }));
 
+      const mismatches = allCountedItems.filter(item => item.is_mismatch);
       const status = mismatches.length === 0 ? 'ZERO DISCREPANCY' : `${mismatches.length} ITEMS MISMATCH`;
 
       // Generate UUID client-side to avoid .select().single() null-return issue
@@ -175,9 +177,9 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
 
       await supabase.from('audit_logs').update({ is_recent: false }).neq('id', auditLogId);
 
-      if (mismatches.length > 0) {
+      if (allCountedItems.length > 0) {
         const { error: mismatchErr } = await supabase.from('audit_mismatches').insert(
-          mismatches.map(m => ({ audit_log_id: auditLogId, item_id: m.id, name: m.name, sku: m.sku, expected: m.expected, actual: m.actual, remark: m.remark || null }))
+          allCountedItems.map(m => ({ audit_log_id: auditLogId, item_id: m.id, name: m.name, sku: m.sku, expected: m.expected, actual: m.actual, remark: m.remark || null, is_mismatch: m.is_mismatch }))
         );
         if (mismatchErr) throw mismatchErr;
       }

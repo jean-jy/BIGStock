@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowRightLeft, RefreshCw, Download } from 'lucide-react';
+import { ArrowRightLeft, RefreshCw, Download, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { PendingTransfersList } from './PendingTransfersList';
@@ -26,6 +26,7 @@ export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () =
   const [multiBranchData, setMultiBranchData] = useState<MultiBranchItem[]>([]);
   const [branchNames, setBranchNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -61,6 +62,13 @@ export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () =
 
     fetchData();
   }, []);
+
+  const filteredData = searchQuery.trim()
+    ? multiBranchData.filter(item =>
+        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.category.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : multiBranchData;
 
   const exportToCSV = () => {
     const headers = ['Item Name', 'Category', ...branchNames, 'Total Network'];
@@ -121,6 +129,19 @@ export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () =
         </div>
       </div>
 
+      <div className="mb-4">
+        <div className="relative">
+          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search by item name or category..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary placeholder-slate-400"
+          />
+        </div>
+      </div>
+
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         {loading ? (
           <div className="p-12 text-center text-slate-400 text-sm">Loading branch inventory...</div>
@@ -128,7 +149,7 @@ export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () =
           <>
           {/* Mobile cards */}
           <div className="md:hidden flex flex-col divide-y divide-slate-50">
-            {multiBranchData.map(item => (
+            {filteredData.map(item => (
               <div key={item.id} className="p-4">
                 <p className="text-sm font-bold text-slate-900 mb-1">{item.name}</p>
                 <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase mb-3 inline-block">{item.category}</span>
@@ -163,7 +184,14 @@ export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () =
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {multiBranchData.map((item) => (
+                {filteredData.length === 0 && (
+                  <tr>
+                    <td colSpan={branchNames.length + 3} className="px-6 py-12 text-center text-slate-400 text-sm">
+                      No items match "{searchQuery}"
+                    </td>
+                  </tr>
+                )}
+                {filteredData.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/30 transition-colors group">
                     <td className="px-6 py-5">
                       <p className="text-sm font-bold text-slate-900">{item.name}</p>
