@@ -3,6 +3,7 @@ import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpre
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
 import type { InventoryItem } from '../types';
+import { BRANCH_NAMES } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { Pagination } from './Pagination';
 
@@ -283,9 +284,11 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
           .single();
         if (error) throw error;
 
-        // Only insert into branch_inventory for actual sub-branches (not Main Branch)
-        if (inserted && newItem.total > 0 && activeBranch !== 'Main Branch' && activeBranch !== 'All Branches') {
-          await supabase.from('branch_inventory').insert({ item_id: inserted.id, branch_id: activeBranch, quantity: newItem.total });
+        // Insert into ALL branches so the item is visible everywhere
+        if (inserted) {
+          await supabase.from('branch_inventory').insert(
+            BRANCH_NAMES.map(branch => ({ item_id: inserted.id, branch_id: branch, quantity: newItem.total }))
+          );
         }
       }
       fetchItems();
