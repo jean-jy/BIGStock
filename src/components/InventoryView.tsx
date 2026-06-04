@@ -249,6 +249,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
           .from('inventory')
           .update({
             ...newItem,
+            expiry_date: newItem.expiry_date || null,
             status,
             last_audit: new Date().toISOString()
           })
@@ -274,6 +275,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
           .from('inventory')
           .insert({
             ...newItem,
+            expiry_date: newItem.expiry_date || null,
             status,
             last_audit: new Date().toISOString()
           })
