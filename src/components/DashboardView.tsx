@@ -23,7 +23,7 @@ function normalizeCategory(cat: string): string {
     .join(' ');
 }
 
-export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAudit: () => void, activeBranch: string, user?: any, key?: string }) {
+export function DashboardView({ onStartAudit, activeBranch, user, onDataRefresh }: { onStartAudit: () => void, activeBranch: string, user?: any, onDataRefresh?: () => void, key?: string }) {
   const [dashTab, setDashTab] = useState<'inventory' | 'audit' | 'procurement' | 'transactions'>('inventory');
   const [activeItemType, setActiveItemType] = useState<'All' | 'Stock' | 'Asset'>('All');
   const [currentPage, setCurrentPage] = useState(1);
@@ -46,6 +46,8 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
   const [branchInventory, setBranchInventory] = useState<Record<string, { qty: number; flagged: boolean }>>({});
   const [consolidatedQty, setConsolidatedQty] = useState<Record<string, number>>({});
   const [approvingAuditId, setApprovingAuditId] = useState<string | null>(null);
+  const [auditDetailLog, setAuditDetailLog] = useState<any | null>(null);
+  const [auditDetailItems, setAuditDetailItems] = useState<any[]>([]);
   const [restockByBranch, setRestockByBranch] = useState<Record<string, { name: string; items: { id: string; name: string; sku: string; category: string; current: number; minStock: number; unit: string; flagged: boolean; belowMin: boolean }[] }>>({});
   const [restockCollapsed, setRestockCollapsed] = useState(false);
 
@@ -471,16 +473,13 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
         throw new Error(`Branch "${branchId}" not found. Please update the user profile's assigned branch to match a valid branch ID (${allBranches.map(b => b.id).join(', ')}).`);
       }
 
-      // 2. Update branch_inventory for ALL audited items
+      // 2. Update branch_inventory for ALL audited items (upsert — never deletes existing rows)
       if (itemsToUpdate.length > 0) {
-        await supabase.from('branch_inventory')
-          .delete()
-          .eq('branch_id', branchId)
-          .in('item_id', itemsToUpdate.map(m => m.id));
-        const { error: insertErr } = await supabase.from('branch_inventory').insert(
-          itemsToUpdate.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual }))
+        const { error: upsertErr } = await supabase.from('branch_inventory').upsert(
+          itemsToUpdate.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual })),
+          { onConflict: 'branch_id,item_id' }
         );
-        if (insertErr) throw insertErr;
+        if (upsertErr) throw upsertErr;
       }
 
       // 3. Re-fetch all branch quantities for affected items to compute correct totals
@@ -543,12 +542,23 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
 
       alert(`Audit approved — ${itemsToUpdate.length} item(s) updated for ${branchId} (${discrepancies.length} discrepanc${discrepancies.length === 1 ? 'y' : 'ies'} corrected).`);
       fetchData();
+      onDataRefresh?.();
     } catch (err) {
       console.error('Error approving audit:', err);
       alert('Failed to approve audit. Check the browser console for the exact error.');
     } finally {
       setApprovingAuditId(null);
     }
+  };
+
+  const handleViewAuditDetail = async (log: any) => {
+    const { data } = await supabase
+      .from('audit_mismatches')
+      .select('*')
+      .eq('audit_log_id', log.id)
+      .order('name');
+    setAuditDetailItems(data || []);
+    setAuditDetailLog(log);
   };
 
   const handleResyncAuditData = async (log: AuditLog) => {
@@ -1412,6 +1422,14 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
                                       ? <><span className="w-3.5 h-3.5 border-2 border-slate-400/40 border-t-slate-600 rounded-full animate-spin" /> Syncing...</>
                                       : <>↺ Re-sync Inventory Data</>
                                     }
+                                  </button>
+                                )}
+                                {log.approvalStatus === 'APPROVED' && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleViewAuditDetail(log); }}
+                                    className="flex items-center gap-2 px-4 py-2 bg-primary/10 text-primary text-xs font-bold rounded-lg hover:bg-primary/20 transition-all active:scale-95"
+                                  >
+                                    📋 View Full Snapshot
                                   </button>
                                 )}
                               </div>
@@ -2398,6 +2416,69 @@ export function DashboardView({ onStartAudit, activeBranch, user }: { onStartAud
           </div>
         )}
       </AnimatePresence>
+
+      {/* Audit Detail / Full Snapshot Modal */}
+      {auditDetailLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setAuditDetailLog(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between">
+              <div>
+                <h2 className="text-lg font-extrabold text-slate-900">Audit Snapshot</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{auditDetailLog.branch} · {auditDetailLog.date} · Audited by {auditDetailLog.auditor}</p>
+              </div>
+              <button onClick={() => setAuditDetailLog(null)} className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors">✕</button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4">
+              {auditDetailItems.length === 0 ? (
+                <p className="text-center text-slate-400 text-sm py-12">No item records saved for this audit.</p>
+              ) : (
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                      <th className="px-3 py-3">Item</th>
+                      <th className="px-3 py-3 text-center">Expected</th>
+                      <th className="px-3 py-3 text-center">Audited</th>
+                      <th className="px-3 py-3 text-center">Variance</th>
+                      <th className="px-3 py-3 text-center">Status</th>
+                      <th className="px-3 py-3">Remark</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {auditDetailItems.map((item: any) => {
+                      const diff = item.actual - item.expected;
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50/50">
+                          <td className="px-3 py-3">
+                            <p className="font-bold text-slate-900">{item.name}</p>
+                            <p className="text-[10px] text-slate-400 font-mono">{item.sku}</p>
+                          </td>
+                          <td className="px-3 py-3 text-center text-slate-500">{item.expected}</td>
+                          <td className="px-3 py-3 text-center font-bold text-slate-900">{item.actual}</td>
+                          <td className="px-3 py-3 text-center">
+                            <span className={`font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                              {diff > 0 ? `+${diff}` : diff}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${diff !== 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                              {diff !== 0 ? 'MISMATCH' : 'MATCHED'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3 text-xs text-slate-500 italic">{item.remark || '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="px-6 py-3 border-t border-slate-100 text-xs text-slate-400 flex justify-between items-center">
+              <span>{auditDetailItems.length} items recorded</span>
+              <span className="text-emerald-600 font-bold">✓ Approved by {auditDetailLog.approvedByName}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
     </motion.div>
   );

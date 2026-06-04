@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Download, Trash2 } from 'lucide-react';
+import { Download, Trash2, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { BRANCH_NAMES } from '../types';
@@ -26,19 +26,36 @@ interface AuditComparisonItem {
   unit: string;
 }
 
-export function StockComparisonView() {
-  const [viewMode, setViewMode] = useState<'audit' | 'usage'>('audit');
+interface Props {
+  activeBranch: string;
+  refreshKey?: number;
+}
+
+export function StockComparisonView({ activeBranch, refreshKey }: Props) {
+  const [viewMode, setViewMode] = useState<'audit' | 'usage' | 'history'>('audit');
   const [usageData, setUsageData] = useState<UsageData[]>([]);
   const [auditData, setAuditData] = useState<AuditComparisonItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [selectedBranch, setSelectedBranch] = useState('All Branches');
+  const [selectedBranch, setSelectedBranch] = useState(activeBranch === 'Main Branch' ? 'All Branches' : activeBranch);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Audit history state
+  const [historyLogs, setHistoryLogs] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedHistoryLog, setSelectedHistoryLog] = useState<any | null>(null);
+  const [historyItems, setHistoryItems] = useState<any[]>([]);
+  const [historyBranchFilter, setHistoryBranchFilter] = useState('All Branches');
 
   const months = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
   ];
+
+  useEffect(() => {
+    setSelectedBranch(activeBranch === 'Main Branch' ? 'All Branches' : activeBranch);
+  }, [activeBranch]);
 
   useEffect(() => {
     if (viewMode === 'usage') {
@@ -105,38 +122,88 @@ export function StockComparisonView() {
       const fetchAudit = async () => {
         setLoading(true);
         try {
-          const { data: inventory, error: invError } = await supabase
-            .from('inventory')
-            .select('id, name, sku, total, unit')
-            .order('name');
-          if (invError) throw invError;
+          if (activeBranch !== 'Main Branch') {
+            const [invResult, biResult, txResult] = await Promise.all([
+              supabase
+                .from('inventory')
+                .select('id, name, sku, unit')
+                .order('name'),
+              supabase
+                .from('branch_inventory')
+                .select('item_id, quantity')
+                .eq('branch_id', activeBranch),
+              supabase
+                .from('inventory_transactions')
+                .select('item_id, quantity, type')
+                .eq('from_location', activeBranch)
+                .order('created_at', { ascending: false })
+            ]);
+            if (invResult.error) throw invResult.error;
+            if (biResult.error) throw biResult.error;
+            if (txResult.error) throw txResult.error;
 
-          const { data: transactions, error: txError } = await supabase
-            .from('inventory_transactions')
-            .select('item_id, quantity, type, from_location')
-            .order('created_at', { ascending: false });
-          if (txError) throw txError;
-
-          const netChange = new Map<string, number>();
-          for (const tx of transactions || []) {
-            if (!tx.item_id) continue;
-            const prev = netChange.get(tx.item_id) || 0;
-            if (tx.type === 'USAGE' || tx.type === 'TRANSFER' && tx.from_location !== 'Main Branch') {
-              netChange.set(tx.item_id, prev + tx.quantity);
-            } else if (tx.type === 'STOCK_IN') {
-              netChange.set(tx.item_id, prev - tx.quantity);
+            const branchQtyMap = new Map<string, number>();
+            for (const row of biResult.data || []) {
+              branchQtyMap.set(row.item_id, row.quantity);
             }
-          }
 
-          const items: AuditComparisonItem[] = (inventory || []).map(item => ({
-            id: item.id,
-            name: item.name,
-            sku: item.sku,
-            currentCount: item.total,
-            lastCount: item.total + (netChange.get(item.id) || 0),
-            unit: item.unit
-          }));
-          setAuditData(items);
+            const netChange = new Map<string, number>();
+            for (const tx of txResult.data || []) {
+              if (!tx.item_id) continue;
+              const prev = netChange.get(tx.item_id) || 0;
+              if (tx.type === 'USAGE') {
+                netChange.set(tx.item_id, prev + tx.quantity);
+              } else if (tx.type === 'STOCK_IN') {
+                netChange.set(tx.item_id, prev - tx.quantity);
+              }
+            }
+
+            const items: AuditComparisonItem[] = (invResult.data || []).map((inv: any) => {
+              const currentCount = branchQtyMap.get(inv.id) ?? 0;
+              return {
+                id: inv.id,
+                name: inv.name,
+                sku: inv.sku || 'N/A',
+                currentCount,
+                lastCount: currentCount + (netChange.get(inv.id) || 0),
+                unit: inv.unit || 'Units'
+              };
+            });
+            setAuditData(items);
+          } else {
+            const { data: inventory, error: invError } = await supabase
+              .from('inventory')
+              .select('id, name, sku, total, unit')
+              .order('name');
+            if (invError) throw invError;
+
+            const { data: transactions, error: txError } = await supabase
+              .from('inventory_transactions')
+              .select('item_id, quantity, type, from_location')
+              .order('created_at', { ascending: false });
+            if (txError) throw txError;
+
+            const netChange = new Map<string, number>();
+            for (const tx of transactions || []) {
+              if (!tx.item_id) continue;
+              const prev = netChange.get(tx.item_id) || 0;
+              if (tx.type === 'USAGE' || tx.type === 'TRANSFER' && tx.from_location !== 'Main Branch') {
+                netChange.set(tx.item_id, prev + tx.quantity);
+              } else if (tx.type === 'STOCK_IN') {
+                netChange.set(tx.item_id, prev - tx.quantity);
+              }
+            }
+
+            const items: AuditComparisonItem[] = (inventory || []).map(item => ({
+              id: item.id,
+              name: item.name,
+              sku: item.sku,
+              currentCount: item.total,
+              lastCount: item.total + (netChange.get(item.id) || 0),
+              unit: item.unit
+            }));
+            setAuditData(items);
+          }
         } catch (err) {
           console.error('Error fetching audit:', err);
         } finally {
@@ -145,7 +212,39 @@ export function StockComparisonView() {
       };
       fetchAudit();
     }
-  }, [viewMode, selectedMonth, selectedYear, selectedBranch]);
+  }, [viewMode, selectedMonth, selectedYear, selectedBranch, activeBranch, refreshKey]);
+
+  useEffect(() => {
+    if (viewMode !== 'history') return;
+    const fetchHistory = async () => {
+      setHistoryLoading(true);
+      try {
+        let query = supabase
+          .from('audit_logs')
+          .select('id, date, branch, auditor, items_checked, status, approval_status, approved_by_name, approved_at')
+          .eq('approval_status', 'APPROVED')
+          .order('approved_at', { ascending: false });
+        const { data, error } = await query;
+        if (error) throw error;
+        setHistoryLogs(data || []);
+      } catch (err) {
+        console.error('Error fetching audit history:', err);
+      } finally {
+        setHistoryLoading(false);
+      }
+    };
+    fetchHistory();
+  }, [viewMode, refreshKey]);
+
+  const handleSelectHistoryLog = async (log: any) => {
+    setSelectedHistoryLog(log);
+    const { data } = await supabase
+      .from('audit_mismatches')
+      .select('*')
+      .eq('audit_log_id', log.id)
+      .order('name');
+    setHistoryItems(data || []);
+  };
 
   const handleVoidUsage = async (usage: UsageData) => {
     if (!window.confirm(`Are you sure you want to VOID this usage record for ${usage.name}? This will add ${usage.quantity} units back to stock.`)) return;
@@ -204,6 +303,14 @@ export function StockComparisonView() {
     ? ((1 - (totalIncrease + totalDecrease) / totalCurrent) * 100).toFixed(1) 
     : '100.0';
 
+  const filteredAuditData = searchQuery.trim()
+    ? auditData.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.sku.toLowerCase().includes(searchQuery.toLowerCase()))
+    : auditData;
+
+  const filteredUsageData = searchQuery.trim()
+    ? usageData.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.branch.toLowerCase().includes(searchQuery.toLowerCase()))
+    : usageData;
+
   const totalUsageCount = usageData.reduce((acc, item) => acc + item.quantity, 0);
   const totalUsageValue = usageData.reduce((acc, item) => acc + item.usageValue, 0);
   const uniqueItemsCount = new Set(usageData.map(d => d.sku)).size;
@@ -220,17 +327,23 @@ export function StockComparisonView() {
           <span className="text-primary font-bold text-xs uppercase tracking-widest mb-2 block">Inventory Intelligence</span>
           <h1 className="text-4xl font-manrope font-extrabold text-slate-900 tracking-tight">Audit & Analytics</h1>
           <div className="flex items-center gap-1 mt-3 bg-slate-100 p-1 rounded-lg w-fit">
-            <button 
-              onClick={() => setViewMode('audit')}
+            <button
+              onClick={() => { setViewMode('audit'); setSearchQuery(''); }}
               className={`px-4 py-2 text-xs font-bold rounded-md transition-all ${viewMode === 'audit' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
               Audit Comparison
             </button>
-            <button 
-              onClick={() => setViewMode('usage')}
+            <button
+              onClick={() => { setViewMode('usage'); setSearchQuery(''); }}
               className={`px-4 py-2 text-xs font-bold rounded-md transition-all ${viewMode === 'usage' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >
               Monthly Usage Tracker
+            </button>
+            <button
+              onClick={() => { setViewMode('history'); setSearchQuery(''); setSelectedHistoryLog(null); }}
+              className={`px-4 py-2 text-xs font-bold rounded-md transition-all ${viewMode === 'history' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Audit History
             </button>
           </div>
         </div>
@@ -284,7 +397,7 @@ export function StockComparisonView() {
         )}
       </div>
 
-      {viewMode === 'audit' ? (
+      {viewMode !== 'history' && viewMode === 'audit' ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
             <p className="text-slate-400 text-[10px] font-bold uppercase mb-1">Total Decreases</p>
@@ -319,14 +432,29 @@ export function StockComparisonView() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+      {viewMode !== 'history' && (
+        <div className="mb-4">
+          <div className="relative">
+            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder={viewMode === 'audit' ? 'Search by item name or SKU...' : 'Search by item name or branch...'}
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary placeholder-slate-400"
+            />
+          </div>
+        </div>
+      )}
+
+      {viewMode !== 'history' && <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         {loading ? (
           <div className="p-12 text-center text-slate-400 text-sm italic">Loading intel...</div>
         ) : viewMode === 'audit' ? (
           <>
             {/* Mobile audit cards */}
             <div className="md:hidden flex flex-col divide-y divide-slate-50">
-              {auditData.map(item => {
+              {filteredAuditData.map(item => {
                 const diff = item.currentCount - item.lastCount;
                 return (
                   <div key={item.id} className="p-4">
@@ -368,7 +496,10 @@ export function StockComparisonView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {auditData.map((item) => {
+                  {filteredAuditData.length === 0 && (
+                    <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400 text-sm">No items match "{searchQuery}"</td></tr>
+                  )}
+                  {filteredAuditData.map((item) => {
                     const diff = item.currentCount - item.lastCount;
                     return (
                       <tr key={item.id} className="hover:bg-slate-50/30 transition-colors group">
@@ -397,15 +528,15 @@ export function StockComparisonView() {
               </table>
             </div>
           </>
-        ) : usageData.length === 0 ? (
+        ) : filteredUsageData.length === 0 ? (
           <div className="p-20 text-center">
-            <p className="text-slate-400 text-sm font-medium">No usage found.</p>
+            <p className="text-slate-400 text-sm font-medium">{searchQuery ? `No items match "${searchQuery}"` : 'No usage found.'}</p>
           </div>
         ) : (
           <>
             {/* Mobile usage cards */}
             <div className="md:hidden flex flex-col divide-y divide-slate-50">
-              {usageData.map((item, idx) => (
+              {filteredUsageData.map((item, idx) => (
                 <div key={item.id + idx} className="p-4">
                   <div className="flex items-start justify-between mb-1">
                     <p className="text-sm font-bold text-slate-900 flex-1 pr-2">{item.name}</p>
@@ -443,7 +574,7 @@ export function StockComparisonView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {usageData.map((item, idx) => (
+                  {filteredUsageData.map((item, idx) => (
                     <tr key={item.id + idx} className="hover:bg-slate-50/30 transition-colors group">
                       <td className="px-6 py-5">
                         <p className="text-xs font-bold text-slate-900">{item.date}</p>
@@ -481,7 +612,125 @@ export function StockComparisonView() {
             </div>
           </>
         )}
-      </div>
+      </div>}
+
+        {/* Audit History Tab */}
+        {viewMode === 'history' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            {selectedHistoryLog ? (
+              <div>
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                  <div>
+                    <button onClick={() => setSelectedHistoryLog(null)} className="text-xs text-primary font-bold hover:underline mb-1 block">← Back to list</button>
+                    <h3 className="text-sm font-extrabold text-slate-900">{selectedHistoryLog.branch} · {selectedHistoryLog.date}</h3>
+                    <p className="text-xs text-slate-500">Audited by {selectedHistoryLog.auditor} · Approved by {selectedHistoryLog.approved_by_name}</p>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${selectedHistoryLog.status === 'ZERO DISCREPANCY' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                    {selectedHistoryLog.status}
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/50 border-b border-slate-100">
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Item</th>
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Expected</th>
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Audited</th>
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Variance</th>
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Status</th>
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Remark</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {historyItems.length === 0 && (
+                        <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400 text-sm">No item records saved for this audit.</td></tr>
+                      )}
+                      {historyItems.map((item: any) => {
+                        const diff = item.actual - item.expected;
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50/30">
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-bold text-slate-900">{item.name}</p>
+                              <p className="text-[10px] text-slate-400 font-mono">{item.sku}</p>
+                            </td>
+                            <td className="px-6 py-4 text-center text-sm text-slate-500">{item.expected}</td>
+                            <td className="px-6 py-4 text-center text-sm font-bold text-slate-900">{item.actual}</td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                                {diff > 0 ? `+${diff}` : diff}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${diff !== 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                                {diff !== 0 ? 'MISMATCH' : 'MATCHED'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-xs text-slate-500 italic">{item.remark || '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+                  <select
+                    value={historyBranchFilter}
+                    onChange={e => setHistoryBranchFilter(e.target.value)}
+                    className="bg-white px-3 py-2 rounded-lg border border-slate-200 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option>All Branches</option>
+                    {['Kepong', 'Jadehills', 'Puchong'].map(b => <option key={b} value={`${b} Branch`}>{b}</option>)}
+                  </select>
+                  <span className="text-xs text-slate-400">{historyLogs.filter(l => historyBranchFilter === 'All Branches' || l.branch === historyBranchFilter).length} approved audits</span>
+                </div>
+                {historyLoading ? (
+                  <div className="p-12 text-center text-slate-400 text-sm italic">Loading history...</div>
+                ) : (
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/50 border-b border-slate-100">
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Date</th>
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Branch</th>
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Auditor</th>
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Items</th>
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Result</th>
+                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Approved By</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {historyLogs.filter(l => historyBranchFilter === 'All Branches' || l.branch === historyBranchFilter).length === 0 && (
+                        <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400 text-sm">No approved audits found.</td></tr>
+                      )}
+                      {historyLogs
+                        .filter(l => historyBranchFilter === 'All Branches' || l.branch === historyBranchFilter)
+                        .map(log => (
+                          <tr
+                            key={log.id}
+                            className="hover:bg-slate-50/50 cursor-pointer transition-colors"
+                            onClick={() => handleSelectHistoryLog(log)}
+                          >
+                            <td className="px-6 py-4 text-sm font-bold text-slate-900">{log.date}</td>
+                            <td className="px-6 py-4 text-sm text-slate-600">{log.branch}</td>
+                            <td className="px-6 py-4 text-sm text-slate-600">{log.auditor}</td>
+                            <td className="px-6 py-4 text-center text-sm font-bold text-primary">{log.items_checked}</td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${log.status === 'ZERO DISCREPANCY' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                                {log.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-slate-500">{log.approved_by_name}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+        )}
     </motion.div>
   );
 }

@@ -32,6 +32,7 @@ import { FinancialsView } from './components/FinancialsView';
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [activeBranch, setActiveBranch] = useState('Main Branch');
+  const [refreshKey, setRefreshKey] = useState(0);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -373,11 +374,11 @@ export default function App() {
         <main className="flex-1 lg:ml-64 p-4 md:p-6 lg:p-8 pb-24 lg:pb-8">
           <AnimatePresence mode="wait">
             {currentView === 'dashboard' ? (
-              <DashboardView key={`dashboard-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} user={user} />
+              <DashboardView key={`dashboard-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} user={user} onDataRefresh={() => setRefreshKey(k => k + 1)} />
             ) : currentView === 'multi-branch' ? (
-              <MultiBranchView key="multi-branch" onOpenTransfer={() => setIsTransferModalOpen(true)} user={user} />
+              <MultiBranchView key="multi-branch" onOpenTransfer={() => setIsTransferModalOpen(true)} user={user} refreshKey={refreshKey} />
             ) : currentView === 'stock-comparison' ? (
-              <StockComparisonView key="stock-comparison" />
+              <StockComparisonView key="stock-comparison" activeBranch={activeBranch} refreshKey={refreshKey} />
             ) : currentView === 'inventory' ? (
               <InventoryView key={`inventory-${activeBranch}`} activeBranch={activeBranch} user={user} />
             ) : currentView === 'settings' ? (

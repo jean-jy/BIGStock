@@ -1001,6 +1001,22 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
                     }
                     
                     if (error) throw error;
+
+                    // Update password via edge function if provided
+                    if (userForm.password) {
+                      const { data: { session } } = await supabase.auth.getSession();
+                      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-user-password`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${session?.access_token}`,
+                        },
+                        body: JSON.stringify({ userId: editingUserId, newPassword: userForm.password }),
+                      });
+                      const result = await res.json();
+                      if (!res.ok) throw new Error(result.error || 'Failed to update password');
+                    }
+
                     alert('User profile updated successfully! 🎉');
                   } else {
                     const baseRole = userForm.role.toLowerCase().includes('admin') ? 'Admin' : 

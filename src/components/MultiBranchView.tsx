@@ -22,7 +22,7 @@ interface MultiBranchItem {
   total: number;
 }
 
-export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () => void, user?: any, key?: string }) {
+export function MultiBranchView({ onOpenTransfer, user, refreshKey }: { onOpenTransfer: () => void, user?: any, refreshKey?: number, key?: string }) {
   const [multiBranchData, setMultiBranchData] = useState<MultiBranchItem[]>([]);
   const [branchNames, setBranchNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,27 +32,36 @@ export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () =
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [branchResult, biResult] = await Promise.all([
+        const [branchResult, invResult, biResult] = await Promise.all([
           supabase.from('branches').select('id, name').order('name'),
-          supabase.from('branch_inventory').select('branch_id, quantity, item_id, inventory(id, name, category)')
+          supabase.from('inventory').select('id, name, category').order('name'),
+          supabase.from('branch_inventory').select('branch_id, quantity, item_id')
         ]);
 
         const branches = (branchResult.data || []).map(b => b.id);
         setBranchNames(branches);
 
-        const itemMap = new Map<string, MultiBranchItem>();
+        // Build branch qty map: { item_id -> { branch_id -> qty } }
+        const branchQtyMap = new Map<string, Record<string, number>>();
         for (const row of biResult.data || []) {
-          const inv = row.inventory as any;
-          if (!inv) continue;
-          if (!itemMap.has(inv.id)) {
-            itemMap.set(inv.id, { id: inv.id, name: inv.name, category: normalizeCategory(inv.category || ''), branches: {}, total: 0 });
-          }
-          const item = itemMap.get(inv.id)!;
-          item.branches[row.branch_id] = row.quantity;
-          item.total += row.quantity;
+          if (!branchQtyMap.has(row.item_id)) branchQtyMap.set(row.item_id, {});
+          branchQtyMap.get(row.item_id)![row.branch_id] = row.quantity;
         }
 
-        setMultiBranchData(Array.from(itemMap.values()));
+        // Show ALL inventory items, with 0 for branches that haven't been audited
+        const items: MultiBranchItem[] = (invResult.data || []).map((inv: any) => {
+          const branchQtys = branchQtyMap.get(inv.id) || {};
+          const total = Object.values(branchQtys).reduce((s: number, q: number) => s + q, 0);
+          return {
+            id: inv.id,
+            name: inv.name,
+            category: normalizeCategory(inv.category || ''),
+            branches: branchQtys,
+            total,
+          };
+        });
+
+        setMultiBranchData(items);
       } catch (err) {
         console.error('Error fetching multi-branch data:', err);
       } finally {
@@ -61,7 +70,7 @@ export function MultiBranchView({ onOpenTransfer, user }: { onOpenTransfer: () =
     };
 
     fetchData();
-  }, []);
+  }, [refreshKey]);
 
   const filteredData = searchQuery.trim()
     ? multiBranchData.filter(item =>
