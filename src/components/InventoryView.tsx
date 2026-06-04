@@ -256,19 +256,17 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
         if (error) throw error;
 
         // SYNC BRANCH DATA
-        if (newItem.total === 0) {
-          await supabase.from('branch_inventory').update({ quantity: 0 }).eq('item_id', editingItem.id);
-        } else {
-          // Simplistic override: if they type a new total, put it in the active branch or main branch
-          const targetBranch = activeBranch === 'All Branches' ? 'Main Branch' : activeBranch;
-          // Zero out others
-          await supabase.from('branch_inventory').update({ quantity: 0 }).eq('item_id', editingItem.id).neq('branch_id', targetBranch);
-          // Set this one
-          const { data: biCheck } = await supabase.from('branch_inventory').select('id').eq('item_id', editingItem.id).eq('branch_id', targetBranch).maybeSingle();
-          if (biCheck) {
-            await supabase.from('branch_inventory').update({ quantity: newItem.total }).eq('id', biCheck.id);
+        // Only sync branch_inventory for actual sub-branches (not Main Branch)
+        if (activeBranch !== 'Main Branch' && activeBranch !== 'All Branches') {
+          if (newItem.total === 0) {
+            await supabase.from('branch_inventory').update({ quantity: 0 }).eq('item_id', editingItem.id).eq('branch_id', activeBranch);
           } else {
-            await supabase.from('branch_inventory').insert({ item_id: editingItem.id, branch_id: targetBranch, quantity: newItem.total });
+            const { data: biCheck } = await supabase.from('branch_inventory').select('id').eq('item_id', editingItem.id).eq('branch_id', activeBranch).maybeSingle();
+            if (biCheck) {
+              await supabase.from('branch_inventory').update({ quantity: newItem.total }).eq('id', biCheck.id);
+            } else {
+              await supabase.from('branch_inventory').insert({ item_id: editingItem.id, branch_id: activeBranch, quantity: newItem.total });
+            }
           }
         }
       } else {
@@ -283,9 +281,9 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
           .single();
         if (error) throw error;
 
-        if (inserted && newItem.total > 0) {
-          const targetBranch = activeBranch === 'All Branches' ? 'Main Branch' : activeBranch;
-          await supabase.from('branch_inventory').insert({ item_id: inserted.id, branch_id: targetBranch, quantity: newItem.total });
+        // Only insert into branch_inventory for actual sub-branches (not Main Branch)
+        if (inserted && newItem.total > 0 && activeBranch !== 'Main Branch' && activeBranch !== 'All Branches') {
+          await supabase.from('branch_inventory').insert({ item_id: inserted.id, branch_id: activeBranch, quantity: newItem.total });
         }
       }
       fetchItems();
