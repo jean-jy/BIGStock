@@ -122,88 +122,57 @@ export function StockComparisonView({ activeBranch, refreshKey }: Props) {
       const fetchAudit = async () => {
         setLoading(true);
         try {
-          if (activeBranch !== 'Main Branch') {
-            // Find last approved audit for this branch
-            const branchLabel = `${activeBranch} Branch`;
-            const { data: lastAuditLog } = await supabase
+          const branchLabel = activeBranch !== 'Main Branch' ? `${activeBranch} Branch` : 'Main Branch';
+
+            // Fetch the 2 most recent approved audits for this branch
+            const { data: auditLogs } = await supabase
               .from('audit_logs')
               .select('id')
               .eq('branch', branchLabel)
               .eq('approval_status', 'APPROVED')
               .order('approved_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
+              .limit(2);
 
-            const [invResult, biResult, lastAuditResult] = await Promise.all([
+            const latestLogId = auditLogs?.[0]?.id ?? null;
+            const previousLogId = auditLogs?.[1]?.id ?? null;
+
+            const [invResult, latestAuditResult, previousAuditResult] = await Promise.all([
               supabase.from('inventory').select('id, name, sku, unit').order('name'),
-              supabase.from('branch_inventory').select('item_id, quantity').eq('branch_id', activeBranch),
-              lastAuditLog
-                ? supabase.from('audit_mismatches').select('item_id, actual').eq('audit_log_id', lastAuditLog.id)
+              latestLogId
+                ? supabase.from('audit_mismatches').select('item_id, actual').eq('audit_log_id', latestLogId)
+                : Promise.resolve({ data: [], error: null }),
+              previousLogId
+                ? supabase.from('audit_mismatches').select('item_id, actual').eq('audit_log_id', previousLogId)
                 : Promise.resolve({ data: [], error: null }),
             ]);
             if (invResult.error) throw invResult.error;
-            if (biResult.error) throw biResult.error;
 
-            // Current branch quantities
-            const branchQtyMap = new Map<string, number>();
-            for (const row of biResult.data || []) {
-              branchQtyMap.set(row.item_id, row.quantity);
+            // Latest audit quantities (most recent approved audit)
+            const latestAuditMap = new Map<string, number>();
+            for (const row of (latestAuditResult.data || []) as any[]) {
+              latestAuditMap.set(row.item_id, row.actual);
             }
 
-            // Last audited quantities (from most recent approved audit)
-            const lastAuditMap = new Map<string, number>();
-            for (const row of (lastAuditResult.data || []) as any[]) {
-              lastAuditMap.set(row.item_id, row.actual);
+            // Previous audit quantities (second most recent approved audit)
+            const previousAuditMap = new Map<string, number>();
+            for (const row of (previousAuditResult.data || []) as any[]) {
+              previousAuditMap.set(row.item_id, row.actual);
             }
 
             const items: AuditComparisonItem[] = (invResult.data || []).map((inv: any) => {
-              const currentCount = branchQtyMap.get(inv.id) ?? 0;
-              // Last count = last audited qty if available, otherwise same as current
-              const lastCount = lastAuditMap.has(inv.id) ? lastAuditMap.get(inv.id)! : currentCount;
+              const latestCount = latestAuditMap.get(inv.id) ?? null;
+              const previousCount = previousAuditMap.get(inv.id) ?? null;
+              // Only show items that appear in at least one audit
               return {
                 id: inv.id,
                 name: inv.name,
                 sku: inv.sku || 'N/A',
-                currentCount,
-                lastCount,
+                currentCount: latestCount ?? 0,   // Latest Count = most recent audit
+                lastCount: previousCount ?? latestCount ?? 0, // Last Count = previous audit
                 unit: inv.unit || 'Units'
               };
-            });
+            }).filter((inv: AuditComparisonItem) => latestAuditMap.has(inv.id) || previousAuditMap.has(inv.id));
             setAuditData(items);
-          } else {
-            // Main Branch: use inventory.total as current, last approved audit as last count
-            const { data: lastAuditLog } = await supabase
-              .from('audit_logs')
-              .select('id')
-              .eq('branch', 'Main Branch')
-              .eq('approval_status', 'APPROVED')
-              .order('approved_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            const [invRes, lastAuditRes] = await Promise.all([
-              supabase.from('inventory').select('id, name, sku, total, unit').order('name'),
-              lastAuditLog
-                ? supabase.from('audit_mismatches').select('item_id, actual').eq('audit_log_id', lastAuditLog.id)
-                : Promise.resolve({ data: [], error: null }),
-            ]);
-            if (invRes.error) throw invRes.error;
-
-            const lastAuditMap = new Map<string, number>();
-            for (const row of (lastAuditRes.data || []) as any[]) {
-              lastAuditMap.set(row.item_id, row.actual);
-            }
-
-            const items: AuditComparisonItem[] = (invRes.data || []).map(item => ({
-              id: item.id,
-              name: item.name,
-              sku: item.sku,
-              currentCount: item.total,
-              lastCount: lastAuditMap.has(item.id) ? lastAuditMap.get(item.id)! : item.total,
-              unit: item.unit
-            }));
-            setAuditData(items);
-          }
         } catch (err) {
           console.error('Error fetching audit:', err);
         } finally {
