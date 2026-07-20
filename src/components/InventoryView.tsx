@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpreadsheet, Search, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpreadsheet, Search, X, GitBranch, CheckSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
 import type { InventoryItem } from '../types';
@@ -48,6 +48,16 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 25;
+
+  // Branch assignment (per-item modal)
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([...BRANCH_NAMES]);
+
+  // Bulk assign
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [bulkBranchModal, setBulkBranchModal] = useState(false);
+  const [bulkBranches, setBulkBranches] = useState<string[]>([...BRANCH_NAMES]);
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   const [newItem, setNewItem] = useState({
     name: '',
@@ -212,6 +222,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
   const openAddModal = () => {
     const sku = generateNextSku('Stock');
     setNewItem({ name: '', subtext: '', category: categories[0] || '', sku, total: 0, unit: 'Units', price: 0, min_stock: 20, item_type: 'Stock', expiry_date: '' });
+    setSelectedBranches([...BRANCH_NAMES]);
     setEditingItem(null);
     setIsModalOpen(true);
   };
@@ -257,19 +268,25 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
           .eq('id', editingItem.id);
         if (error) throw error;
 
-        // SYNC BRANCH DATA
-        // Only sync branch_inventory for actual sub-branches (not Main Branch)
-        if (activeBranch !== 'Main Branch' && activeBranch !== 'All Branches') {
-          if (newItem.total === 0) {
-            await supabase.from('branch_inventory').update({ quantity: 0 }).eq('item_id', editingItem.id).eq('branch_id', activeBranch);
-          } else {
-            const { data: biCheck } = await supabase.from('branch_inventory').select('id').eq('item_id', editingItem.id).eq('branch_id', activeBranch).maybeSingle();
-            if (biCheck) {
-              await supabase.from('branch_inventory').update({ quantity: newItem.total }).eq('id', biCheck.id);
-            } else {
-              await supabase.from('branch_inventory').insert({ item_id: editingItem.id, branch_id: activeBranch, quantity: newItem.total });
-            }
-          }
+        // Sync branch availability: remove unchecked branches, add newly checked ones (qty 0)
+        const { data: existingRows } = await supabase
+          .from('branch_inventory')
+          .select('branch_id')
+          .eq('item_id', editingItem.id);
+        const existingBranches = new Set((existingRows || []).map(r => r.branch_id));
+
+        const toAdd = selectedBranches.filter(b => !existingBranches.has(b));
+        const toRemove = [...existingBranches].filter(b => !selectedBranches.includes(b));
+
+        if (toAdd.length > 0) {
+          await supabase.from('branch_inventory').insert(
+            toAdd.map(b => ({ item_id: editingItem.id, branch_id: b, quantity: 0 }))
+          );
+        }
+        if (toRemove.length > 0) {
+          await supabase.from('branch_inventory').delete()
+            .eq('item_id', editingItem.id)
+            .in('branch_id', toRemove);
         }
       } else {
         const { data: inserted, error } = await supabase
@@ -284,10 +301,10 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
           .single();
         if (error) throw error;
 
-        // Insert into ALL branches so the item is visible everywhere
-        if (inserted) {
+        // Insert only into selected branches
+        if (inserted && selectedBranches.length > 0) {
           await supabase.from('branch_inventory').insert(
-            BRANCH_NAMES.map(branch => ({ item_id: inserted.id, branch_id: branch, quantity: newItem.total }))
+            selectedBranches.map(branch => ({ item_id: inserted.id, branch_id: branch, quantity: newItem.total }))
           );
         }
       }
@@ -299,7 +316,43 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
     }
   };
 
-  const openEditModal = (item: InventoryItem) => {
+  const handleBulkAssign = async () => {
+    setBulkSaving(true);
+    try {
+      const ids = [...bulkSelectedIds];
+      for (const itemId of ids) {
+        const { data: existingRows } = await supabase
+          .from('branch_inventory')
+          .select('branch_id')
+          .eq('item_id', itemId);
+        const existingBranches = new Set((existingRows || []).map(r => r.branch_id));
+
+        const toAdd = bulkBranches.filter(b => !existingBranches.has(b));
+        const toRemove = [...existingBranches].filter(b => !bulkBranches.includes(b));
+
+        if (toAdd.length > 0) {
+          await supabase.from('branch_inventory').insert(
+            toAdd.map(b => ({ item_id: itemId, branch_id: b, quantity: 0 }))
+          );
+        }
+        if (toRemove.length > 0) {
+          await supabase.from('branch_inventory').delete()
+            .eq('item_id', itemId)
+            .in('branch_id', toRemove);
+        }
+      }
+      setBulkBranchModal(false);
+      setIsBulkMode(false);
+      setBulkSelectedIds(new Set());
+    } catch (err) {
+      console.error('Bulk assign error:', err);
+      alert('Failed to bulk assign branches');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  const openEditModal = async (item: InventoryItem) => {
     setEditingItem(item);
     setNewItem({
       name: item.name,
@@ -313,6 +366,12 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
       item_type: item.item_type || 'Stock',
       expiry_date: (item as any).expiry_date || ''
     });
+    // Fetch current branch assignments for this item
+    const { data: biRows } = await supabase
+      .from('branch_inventory')
+      .select('branch_id')
+      .eq('item_id', item.id);
+    setSelectedBranches((biRows || []).map(r => r.branch_id));
     setIsModalOpen(true);
   };
 
@@ -460,6 +519,22 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
             <Upload size={18} />
             Bulk Import CSV
           </button>
+          <button
+            onClick={() => { setIsBulkMode(b => !b); setBulkSelectedIds(new Set()); }}
+            className={`flex items-center gap-2 px-4 py-2.5 border text-sm font-bold shadow-sm transition-all rounded-md ${isBulkMode ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-700 hover:border-indigo-300'}`}
+          >
+            <CheckSquare size={18} />
+            {isBulkMode ? 'Exit Bulk' : 'Bulk Assign'}
+          </button>
+          {isBulkMode && bulkSelectedIds.size > 0 && (
+            <button
+              onClick={() => { setBulkBranches([...BRANCH_NAMES]); setBulkBranchModal(true); }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-bold shadow-sm hover:opacity-90 transition-all rounded-md"
+            >
+              <GitBranch size={18} />
+              Assign Branches ({bulkSelectedIds.size})
+            </button>
+          )}
           <button
             onClick={openAddModal}
             className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-bold shadow-lg hover:opacity-90 transition-all rounded-md active:scale-95"
@@ -639,6 +714,16 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
         <table className="w-full text-left border-collapse min-w-[640px]">
           <thead>
             <tr className="bg-slate-50/50 border-b border-slate-100">
+              {isBulkMode && (
+                <th className="px-4 py-4 w-10">
+                  <input
+                    type="checkbox"
+                    className="rounded"
+                    checked={bulkSelectedIds.size === paginatedItems.length && paginatedItems.length > 0}
+                    onChange={e => setBulkSelectedIds(e.target.checked ? new Set(paginatedItems.map(i => i.id)) : new Set())}
+                  />
+                </th>
+              )}
               <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Item Details</th>
               <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Category</th>
               <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">SKU</th>
@@ -653,12 +738,26 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
               <React.Fragment key={item.id}>
                 {(idx === 0 || item.category !== arr[idx - 1].category) && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-2 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100">
+                    <td colSpan={isBulkMode ? 8 : 7} className="px-6 py-2 bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100">
                       {item.category || 'Uncategorized'}
                     </td>
                   </tr>
                 )}
-              <tr className="hover:bg-slate-50/30 transition-colors group">
+              <tr className={`hover:bg-slate-50/30 transition-colors group ${bulkSelectedIds.has(item.id) ? 'bg-indigo-50/40' : ''}`}>
+                {isBulkMode && (
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={bulkSelectedIds.has(item.id)}
+                      onChange={e => {
+                        const next = new Set(bulkSelectedIds);
+                        e.target.checked ? next.add(item.id) : next.delete(item.id);
+                        setBulkSelectedIds(next);
+                      }}
+                    />
+                  </td>
+                )}
                 <td className={tdCls}>
                   <div className="flex items-center gap-2">
                     <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-black uppercase rounded ${
@@ -862,6 +961,26 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
                       className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/10 transition-all"
                     />
                   </div>
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-2">Available at Branches</label>
+                    <div className="flex flex-wrap gap-2">
+                      {BRANCH_NAMES.map(branch => (
+                        <label key={branch} className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-sm font-bold select-none ${selectedBranches.includes(branch) ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+                          <input
+                            type="checkbox"
+                            className="hidden"
+                            checked={selectedBranches.includes(branch)}
+                            onChange={e => setSelectedBranches(e.target.checked ? [...selectedBranches, branch] : selectedBranches.filter(b => b !== branch))}
+                          />
+                          <span className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${selectedBranches.includes(branch) ? 'bg-primary border-primary' : 'border-slate-300'}`}>
+                            {selectedBranches.includes(branch) && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                          </span>
+                          {branch}
+                        </label>
+                      ))}
+                    </div>
+                    {selectedBranches.length === 0 && <p className="text-[10px] text-orange-500 mt-1">Select at least one branch.</p>}
+                  </div>
                 </div>
                 <div className="pt-4 flex gap-3">
                   <button
@@ -879,6 +998,53 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Bulk Assign Branches Modal */}
+      <AnimatePresence>
+        {bulkBranchModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setBulkBranchModal(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-manrope font-extrabold text-slate-900">Assign Branches</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Apply to {bulkSelectedIds.size} selected item{bulkSelectedIds.size > 1 ? 's' : ''}</p>
+                </div>
+                <button onClick={() => setBulkBranchModal(false)} className="text-slate-400 hover:text-slate-600"><Plus size={24} className="rotate-45" /></button>
+              </div>
+              <div className="p-6 space-y-4">
+                <p className="text-xs text-slate-500">Select which branches these items should be available at. Branches unchecked will be removed.</p>
+                <div className="flex flex-col gap-2">
+                  {BRANCH_NAMES.map(branch => (
+                    <label key={branch} className={`flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-all font-bold text-sm select-none ${bulkBranches.includes(branch) ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+                      <input
+                        type="checkbox"
+                        className="hidden"
+                        checked={bulkBranches.includes(branch)}
+                        onChange={e => setBulkBranches(e.target.checked ? [...bulkBranches, branch] : bulkBranches.filter(b => b !== branch))}
+                      />
+                      <span className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${bulkBranches.includes(branch) ? 'bg-primary border-primary' : 'border-slate-300'}`}>
+                        {bulkBranches.includes(branch) && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </span>
+                      {branch}
+                    </label>
+                  ))}
+                </div>
+                <div className="pt-2 flex gap-3">
+                  <button onClick={() => setBulkBranchModal(false)} className="flex-1 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all">Cancel</button>
+                  <button
+                    onClick={handleBulkAssign}
+                    disabled={bulkSaving || bulkBranches.length === 0}
+                    className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:opacity-90 transition-all active:scale-95 disabled:opacity-40"
+                  >
+                    {bulkSaving ? 'Saving...' : 'Apply'}
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}
