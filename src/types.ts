@@ -23,7 +23,7 @@ export interface InventoryItem {
   item_type?: 'Stock' | 'Asset';
 }
 
-export const BRANCH_NAMES = ['Kepong', 'Jadehills', 'Puchong'] as const;
+export const BRANCH_NAMES = ['Kepong', 'Jadehills', 'Puchong', 'Warehouse'] as const;
 export const USER_ROLES = ['Admin', 'Branch Manager', 'Staff'] as const;
 export type UserRole = typeof USER_ROLES[number];
 
