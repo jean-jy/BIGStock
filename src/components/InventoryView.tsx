@@ -165,8 +165,26 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
   const fetchItems = async () => {
     setLoading(true);
     try {
+      const isBranchView = activeBranch !== 'Main Branch' && activeBranch !== 'All Branches';
+
+      // For a specific branch, only fetch items available at that branch via branch_inventory
+      let invQuery = supabase.from('inventory').select('*').order('category').order('name').limit(5000);
+      if (isBranchView) {
+        const { data: biRows } = await supabase
+          .from('branch_inventory')
+          .select('item_id')
+          .eq('branch_id', activeBranch);
+        const availableIds = (biRows || []).map(r => r.item_id);
+        if (availableIds.length === 0) {
+          setItems([]);
+          setLoading(false);
+          return;
+        }
+        invQuery = invQuery.in('id', availableIds);
+      }
+
       const [invResult, historyResult] = await Promise.all([
-        supabase.from('inventory').select('*').order('category').order('name').limit(5000),
+        invQuery,
         supabase.from('inventory_transactions')
           .select('id, item_id, item_name, quantity, from_location, remarks, created_at')
           .eq('type', 'STOCK_IN')
