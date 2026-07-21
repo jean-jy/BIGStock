@@ -167,21 +167,26 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
     try {
       const isBranchView = activeBranch !== 'Main Branch' && activeBranch !== 'All Branches';
 
-      // For a specific branch, only fetch items available at that branch via branch_inventory
-      let invQuery = supabase.from('inventory').select('*').order('category').order('name').limit(5000);
+      let branchQtyMap = new Map<string, number>(); // item_id -> branch quantity
+
       if (isBranchView) {
         const { data: biRows } = await supabase
           .from('branch_inventory')
-          .select('item_id')
+          .select('item_id, quantity')
           .eq('branch_id', activeBranch);
-        const availableIds = (biRows || []).map(r => r.item_id);
-        if (availableIds.length === 0) {
+
+        if (!biRows || biRows.length === 0) {
           setItems([]);
           setLoading(false);
           return;
         }
-        invQuery = invQuery.in('id', availableIds);
+
+        biRows.forEach(r => branchQtyMap.set(r.item_id, r.quantity));
       }
+
+      const availableIds = isBranchView ? [...branchQtyMap.keys()] : [];
+      let invQuery = supabase.from('inventory').select('*').order('category').order('name').limit(5000);
+      if (isBranchView) invQuery = invQuery.in('id', availableIds);
 
       const [invResult, historyResult] = await Promise.all([
         invQuery,
@@ -194,12 +199,19 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
 
       if (invResult.error) throw invResult.error;
 
-      const mappedItems: InventoryItem[] = (invResult.data || []).map(item => ({
-        ...item,
-        category: normalizeCategory(item.category || ''),
-        lastAudit: item.last_audit ? new Date(item.last_audit).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Never',
-        branchStock: {}
-      }));
+      const mappedItems: InventoryItem[] = (invResult.data || []).map(item => {
+        const displayTotal = isBranchView ? (branchQtyMap.get(item.id) ?? 0) : item.total;
+        const alertLevel = item.min_stock || 20;
+        const status = displayTotal < alertLevel ? 'REORDER' : (displayTotal < alertLevel * 2 ? 'BALANCED' : 'HEALTHY');
+        return {
+          ...item,
+          total: displayTotal,
+          status,
+          category: normalizeCategory(item.category || ''),
+          lastAudit: item.last_audit ? new Date(item.last_audit).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Never',
+          branchStock: {}
+        };
+      });
 
       setItems(mappedItems);
       const dbCategories = Array.from(new Set(mappedItems.map(i => i.category).filter(Boolean))).sort();
