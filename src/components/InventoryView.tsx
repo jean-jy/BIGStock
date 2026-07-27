@@ -74,6 +74,35 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+  const handleExportCSV = () => {
+    const isBranchView = activeBranch !== 'Main Branch' && activeBranch !== 'All Branches';
+    const headers = ['Item Name', 'Description', 'Category', 'SKU', 'Type', 'Unit Price (RM)', isBranchView ? `Qty (${activeBranch})` : 'Total Qty', 'Unit', 'Min Stock', 'Status', 'Expiry Date'];
+    const rows = filteredItems.map(item => [
+      item.name,
+      item.subtext || '',
+      item.category,
+      item.sku,
+      item.item_type || 'Stock',
+      item.price?.toFixed(2) || '0.00',
+      item.total,
+      item.unit,
+      item.min_stock || 20,
+      item.status,
+      (item as any).expiry_date || ''
+    ]);
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const branch = isBranchView ? activeBranch : 'All';
+    a.download = `inventory-${branch}-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleDownloadTemplate = () => {
     const headers = ['item_name', 'subtext', 'category', 'sku', 'price', 'initial_quantity', 'unit', 'min_stock_alert'];
     const row = ['"Dental Mirror #4"', '"Stainless Steel"', '"Instruments"', '"INS-MIR-04"', '45.00', '100', '"Units"', '20'];
@@ -535,11 +564,20 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
             className="hidden" 
           />
           <button
+            onClick={handleExportCSV}
+            disabled={filteredItems.length === 0}
+            className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 text-slate-600 text-sm font-bold rounded-md hover:bg-white transition-all disabled:opacity-40"
+            title="Export current list as CSV"
+          >
+            <Download size={18} />
+            Export CSV
+          </button>
+          <button
             onClick={handleDownloadTemplate}
             className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 text-slate-600 text-sm font-bold rounded-md hover:bg-white transition-all"
             title="Download CSV Template"
           >
-            <Download size={18} />
+            <FileSpreadsheet size={18} />
             Template
           </button>
           <button
