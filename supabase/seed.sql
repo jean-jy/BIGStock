@@ -111,3 +111,33 @@ insert into public.procurement_order_items (order_id, item_name, sku, quantity, 
   ('b0000000-0000-0000-0000-000000000001', 'Nitrile Exam Gloves (Medium)', 'GLV-NIT-M',   20, 'Boxes',   35.50),
   ('b0000000-0000-0000-0000-000000000002', 'Alginate Impression Material',  'ALG-FST-500', 30, 'Packs',  125.00),
   ('b0000000-0000-0000-0000-000000000002', 'Dental Burs (Diamond FG)',      'BUR-DIA-FG',  50, 'Packs',   65.00);
+
+-- ============================================================
+-- HYDRALAB — second company sample data
+-- Requires migration 20260805162151_add_companies_multi_tenant
+-- (companies + Hydralab branches Setiawalk / Damansara).
+-- ============================================================
+
+-- 12. HYDRALAB INVENTORY (its own catalog, company_id = 'hydralab')
+insert into public.inventory (name, subtext, category, sku, total, unit, status, price, min_stock, item_type, company_id) values
+  ('Hydraulic Fluid ISO 46', 'Anti-wear grade',       'Fluids',   'HL-FLU-46',    70, 'Litres', 'HEALTHY',   18.50, 30, 'Stock', 'hydralab'),
+  ('Hydraulic Hose 1/2"',    'High pressure braided', 'Hoses',    'HL-HOSE-12',   70, 'Metres', 'HEALTHY',    7.20, 20, 'Stock', 'hydralab'),
+  ('Hydraulic Pump P32',     'Gear pump',             'Pumps',    'HL-PUMP-P32',  70, 'Units',  'REORDER',  210.00,  5, 'Asset', 'hydralab'),
+  ('O-Ring Seal Kit',        'Assorted NBR',          'Seals',    'HL-ORING-KIT', 70, 'Kits',   'BALANCED',  12.00, 15, 'Stock', 'hydralab'),
+  ('Pressure Gauge 250bar',  'Glycerin filled',       'Gauges',   'HL-GAUGE-250', 70, 'Units',  'REORDER',   34.90, 20, 'Stock', 'hydralab'),
+  ('Quick Coupler 3/8"',     'Flat face ISO 16028',   'Couplers', 'HL-COUP-38',   70, 'Units',  'HEALTHY',    5.40, 25, 'Stock', 'hydralab')
+on conflict (sku) do nothing;
+
+-- 13. HYDRALAB BRANCH_INVENTORY (Setiawalk 40 / Damansara 30 per item)
+insert into public.branch_inventory (branch_id, item_id, quantity)
+select b.branch_id, i.id, b.quantity
+from (values
+  ('Hydralab Setiawalk', 'HL-FLU-46',    40), ('Hydralab Damansara', 'HL-FLU-46',    30),
+  ('Hydralab Setiawalk', 'HL-HOSE-12',   40), ('Hydralab Damansara', 'HL-HOSE-12',   30),
+  ('Hydralab Setiawalk', 'HL-PUMP-P32',  40), ('Hydralab Damansara', 'HL-PUMP-P32',  30),
+  ('Hydralab Setiawalk', 'HL-ORING-KIT', 40), ('Hydralab Damansara', 'HL-ORING-KIT', 30),
+  ('Hydralab Setiawalk', 'HL-GAUGE-250', 40), ('Hydralab Damansara', 'HL-GAUGE-250', 30),
+  ('Hydralab Setiawalk', 'HL-COUP-38',   40), ('Hydralab Damansara', 'HL-COUP-38',   30)
+) as b(branch_id, sku, quantity)
+join public.inventory i on i.sku = b.sku
+on conflict (branch_id, item_id) do nothing;

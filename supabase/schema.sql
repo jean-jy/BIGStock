@@ -2,6 +2,12 @@
 -- BIGStock Precision — Complete Supabase Schema
 -- Run this in the Supabase SQL Editor. It drops and recreates
 -- all tables, so it's safe to run on an existing database.
+--
+-- NOTE: The live database has drifted ahead of this file over time
+-- (e.g. inventory.min_stock / expiry_date, clinic_info, audit_schedules).
+-- The incremental migrations under supabase/migrations/ are the
+-- authoritative record. This file is kept current for the multi-company
+-- layer (companies + company_id); regenerate fully when convenient.
 -- ============================================================
 
 -- Drop all tables in reverse dependency order
@@ -18,6 +24,15 @@ drop table if exists public.branch_inventory cascade;
 drop table if exists public.inventory cascade;
 drop table if exists public.branches cascade;
 drop table if exists public.profiles cascade;
+drop table if exists public.companies cascade;
+
+-- 0. COMPANIES (business/brand layer above branches)
+create table public.companies (
+  id text primary key,
+  name text not null,
+  logo_url text,
+  created_at timestamptz not null default now()
+);
 
 -- 1. PROFILES (extends Supabase auth.users)
 create table public.profiles (
@@ -28,6 +43,7 @@ create table public.profiles (
   avatar_url text,
   email text,
   phone text,
+  company_id text references public.companies(id) default 'big-dental',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -59,6 +75,7 @@ create table public.branches (
   location text,
   address text,
   manager text,
+  company_id text references public.companies(id) default 'big-dental',
   created_at timestamptz not null default now()
 );
 
@@ -74,6 +91,7 @@ create table public.inventory (
   status text not null default 'HEALTHY' check (status in ('REORDER', 'HEALTHY', 'BALANCED')),
   price numeric(10,2) default 0,
   last_audit timestamptz,
+  company_id text references public.companies(id) default 'big-dental',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -131,6 +149,7 @@ create table public.audit_logs (
   approved_by_name text,
   approved_at timestamptz,
   is_recent boolean default false,
+  company_id text references public.companies(id) default 'big-dental',
   created_at timestamptz not null default now()
 );
 
@@ -153,6 +172,7 @@ create table public.activities (
   title text not null,
   location text not null,
   time text not null,
+  company_id text references public.companies(id) default 'big-dental',
   created_at timestamptz not null default now()
 );
 
@@ -164,6 +184,7 @@ create table public.suppliers (
   phone text,
   email text,
   address text,
+  company_id text references public.companies(id) default 'big-dental',
   created_at timestamptz not null default now()
 );
 
@@ -191,6 +212,7 @@ create table public.procurement_orders (
   payment_status text default 'UNPAID' check (payment_status in ('UNPAID', 'PAYMENT_SUBMITTED', 'PAID')),
   payment_submitted_date timestamptz,
   payment_paid_date timestamptz,
+  company_id text references public.companies(id) default 'big-dental',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -212,6 +234,7 @@ create table public.procurement_order_items (
 -- (Tighten per-role later as needed)
 -- ============================================================
 
+alter table public.companies enable row level security;
 alter table public.profiles enable row level security;
 alter table public.branches enable row level security;
 alter table public.inventory enable row level security;
@@ -227,7 +250,10 @@ alter table public.procurement_orders enable row level security;
 alter table public.procurement_order_items enable row level security;
 
 -- Policies: authenticated users can read/write all tables
--- (In production, scope these to roles)
+-- (In production, scope these to roles/company)
+create policy "Authenticated users full access" on public.companies
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
 create policy "Authenticated users full access" on public.profiles
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
@@ -266,3 +292,17 @@ create policy "Authenticated users full access" on public.procurement_orders
 
 create policy "Authenticated users full access" on public.procurement_order_items
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
+
+-- ============================================================
+-- COMPANY SCOPING — indexes + foundational company rows
+-- ============================================================
+create index if not exists idx_inventory_company on public.inventory(company_id);
+create index if not exists idx_branches_company  on public.branches(company_id);
+create index if not exists idx_profiles_company  on public.profiles(company_id);
+
+-- Foundational rows: the `default 'big-dental'` FKs above require these
+insert into public.companies (id, name, logo_url) values
+  ('big-dental', 'Big Dental Clinic', '/logo.png'),
+  ('hydralab',   'Hydralab',          null)
+on conflict (id) do nothing;
