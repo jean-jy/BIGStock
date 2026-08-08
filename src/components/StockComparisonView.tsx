@@ -29,9 +29,11 @@ interface AuditComparisonItem {
 interface Props {
   activeBranch: string;
   refreshKey?: number;
+  activeCompany?: string;
+  companyBranches?: string[];
 }
 
-export function StockComparisonView({ activeBranch, refreshKey }: Props) {
+export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 'big-dental', companyBranches = [] }: Props) {
   const [viewMode, setViewMode] = useState<'audit' | 'usage' | 'history'>('audit');
   const [usageData, setUsageData] = useState<UsageData[]>([]);
   const [auditData, setAuditData] = useState<AuditComparisonItem[]>([]);
@@ -89,6 +91,8 @@ export function StockComparisonView({ activeBranch, refreshKey }: Props) {
 
           if (selectedBranch !== 'All Branches') {
             query = query.eq('from_location', selectedBranch);
+          } else if (companyBranches.length > 0) {
+            query = query.in('from_location', companyBranches);
           }
 
           const { data, error } = await query;
@@ -137,7 +141,7 @@ export function StockComparisonView({ activeBranch, refreshKey }: Props) {
             const previousLogId = auditLogs?.[1]?.id ?? null;
 
             const [invResult, latestAuditResult, previousAuditResult] = await Promise.all([
-              supabase.from('inventory').select('id, name, sku, unit').order('name'),
+              supabase.from('inventory').select('id, name, sku, unit').eq('company_id', activeCompany).order('name'),
               latestLogId
                 ? supabase.from('audit_mismatches').select('item_id, actual').eq('audit_log_id', latestLogId)
                 : Promise.resolve({ data: [], error: null }),
@@ -181,7 +185,7 @@ export function StockComparisonView({ activeBranch, refreshKey }: Props) {
       };
       fetchAudit();
     }
-  }, [viewMode, selectedMonth, selectedYear, selectedBranch, activeBranch, refreshKey]);
+  }, [viewMode, selectedMonth, selectedYear, selectedBranch, activeBranch, refreshKey, activeCompany]);
 
   useEffect(() => {
     if (viewMode !== 'history') return;
@@ -192,6 +196,7 @@ export function StockComparisonView({ activeBranch, refreshKey }: Props) {
           .from('audit_logs')
           .select('id, date, branch, auditor, items_checked, status, approval_status, approved_by_name, approved_at')
           .eq('approval_status', 'APPROVED')
+          .eq('company_id', activeCompany)
           .order('approved_at', { ascending: false });
         const { data, error } = await query;
         if (error) throw error;
@@ -203,7 +208,7 @@ export function StockComparisonView({ activeBranch, refreshKey }: Props) {
       }
     };
     fetchHistory();
-  }, [viewMode, refreshKey]);
+  }, [viewMode, refreshKey, activeCompany]);
 
   const handleSelectHistoryLog = async (log: any) => {
     setSelectedHistoryLog(log);
@@ -324,7 +329,7 @@ export function StockComparisonView({ activeBranch, refreshKey }: Props) {
               className="bg-white px-4 py-2 rounded-lg border border-slate-200 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-primary/20"
             >
               <option>All Branches</option>
-              {(BRANCH_NAMES || ['Kepong', 'Jadehills', 'Puchong']).map(b => (
+              {(companyBranches.length > 0 ? companyBranches : BRANCH_NAMES).map(b => (
                 <option key={b} value={b}>{b}</option>
               ))}
             </select>

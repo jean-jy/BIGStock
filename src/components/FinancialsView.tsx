@@ -56,7 +56,7 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-export function FinancialsView({ user }: { user?: any }) {
+export function FinancialsView({ user, activeCompany = 'big-dental', companyBranches = [] }: { user?: any, activeCompany?: string, companyBranches?: string[] }) {
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -71,7 +71,7 @@ export function FinancialsView({ user }: { user?: any }) {
 
   useEffect(() => {
     fetchFinancials();
-  }, [selectedMonth, selectedYear, selectedBranch, activeReportType]);
+  }, [selectedMonth, selectedYear, selectedBranch, activeReportType, activeCompany]);
 
   const fetchFinancials = async () => {
     setLoading(true);
@@ -89,6 +89,8 @@ export function FinancialsView({ user }: { user?: any }) {
 
       if (selectedBranch !== 'All Branches') {
         inventoryQuery = inventoryQuery.eq('branch_id', selectedBranch);
+      } else if (companyBranches.length > 0) {
+        inventoryQuery = inventoryQuery.in('branch_id', companyBranches);
       }
 
       const { data: branchData, error: branchError } = await inventoryQuery;
@@ -97,7 +99,8 @@ export function FinancialsView({ user }: { user?: any }) {
       // 2. Fetch the full item catalog to ensure items with 0 stock are initialized
       const { data: catalog, error: catError } = await supabase
         .from('inventory')
-        .select('id, name, sku, category, unit, price, total, item_type');
+        .select('id, name, sku, category, unit, price, total, item_type')
+        .eq('company_id', activeCompany);
       if (catError) throw catError;
 
       // Build per-item financial data
@@ -442,7 +445,7 @@ export function FinancialsView({ user }: { user?: any }) {
           <MapPin size={12} />
           All Branches
         </button>
-        {BRANCH_NAMES.map(branch => (
+        {(companyBranches.length > 0 ? companyBranches : BRANCH_NAMES).map(branch => (
           <button
             key={branch}
             onClick={() => setSelectedBranch(branch)}

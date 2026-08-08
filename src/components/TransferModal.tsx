@@ -5,9 +5,10 @@ import { supabase } from '../supabase';
 import { BRANCH_NAMES } from '../types';
 import type { InventoryItem } from '../types';
 
-export function TransferModal({ isOpen, onClose, user }: { isOpen: boolean, onClose: () => void, user?: any }) {
-  const [fromBranch, setFromBranch] = useState('Kepong');
-  const [toBranch, setToBranch] = useState('Jadehills');
+export function TransferModal({ isOpen, onClose, user, companyBranches, activeCompany = 'big-dental' }: { isOpen: boolean, onClose: () => void, user?: any, companyBranches?: string[], activeCompany?: string }) {
+  const branches = (companyBranches && companyBranches.length > 0) ? companyBranches : [...BRANCH_NAMES];
+  const [fromBranch, setFromBranch] = useState(branches[0] || 'Kepong');
+  const [toBranch, setToBranch] = useState(branches[1] || branches[0] || 'Jadehills');
   const [selectedItem, setSelectedItem] = useState('');
   const [quantity, setQuantity] = useState<number | ''>(1);
   const [notes, setNotes] = useState('');
@@ -16,15 +17,14 @@ export function TransferModal({ isOpen, onClose, user }: { isOpen: boolean, onCl
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [fromStock, setFromStock] = useState<number | null>(null);
 
-  const branches = [...BRANCH_NAMES];
   const isAdmin = user?.role === 'Admin';
 
   useEffect(() => {
     if (!isOpen) return;
-    supabase.from('inventory').select('*').order('name').then(({ data }) => {
+    supabase.from('inventory').select('*').eq('company_id', activeCompany).order('name').then(({ data }) => {
       setInventory((data || []).map(item => ({ ...item, lastAudit: item.last_audit || 'Never', branchStock: {} })));
     });
-  }, [isOpen]);
+  }, [isOpen, activeCompany]);
 
   useEffect(() => {
     if (!selectedItem || !fromBranch) { setFromStock(null); return; }

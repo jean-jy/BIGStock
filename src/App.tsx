@@ -5,18 +5,18 @@
 
 import { useState, useEffect, useRef } from 'react';
 import {
-  Bell, HelpCircle, Hospital, MapPin, Sparkles,
+  Bell, HelpCircle, MapPin, Sparkles,
   ArrowRightLeft, LogOut,
   Home, Package, BarChart3, GitBranch,
   MoreHorizontal, ChevronDown, X,
   Settings, DollarSign, ClipboardCheck,
-  AlertTriangle, Clock, ArrowLeftRight, CalendarX
+  AlertTriangle, Clock, ArrowLeftRight, CalendarX,
+  Building2, Check
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase } from './supabase';
 
 import type { View } from './types';
-import { BRANCH_NAMES } from './types';
 
 import { LoginView } from './components/LoginView';
 import { SidebarItem } from './components/SidebarItem';
@@ -33,6 +33,11 @@ export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [activeBranch, setActiveBranch] = useState('Main Branch');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [companies, setCompanies] = useState<{ id: string; name: string; logo_url: string | null }[]>([]);
+  const [allBranchesData, setAllBranchesData] = useState<{ id: string; name: string; company_id: string }[]>([]);
+  const [activeCompanyId, setActiveCompanyId] = useState<string>(() => localStorage.getItem('activeCompanyId') || 'big-dental');
+  const [companySwitcherOpen, setCompanySwitcherOpen] = useState(false);
+  const companySwitcherRef = useRef<HTMLDivElement>(null);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -65,6 +70,7 @@ export default function App() {
         displayName: session.user.user_metadata?.full_name || session.user.email,
         role: session.user.user_metadata?.role || 'Staff',
         assignedBranch: 'Main Branch',
+        companyId: 'big-dental',
         photoURL: session.user.user_metadata?.avatar_url || ''
       };
 
@@ -105,6 +111,7 @@ export default function App() {
                 displayName: displayName,
                 role: isOwner ? 'Admin' : displayRole,
                 assignedBranch: resolvedBranch,
+                companyId: profile.company_id || prev.companyId || 'big-dental',
                 photoURL: profile.avatar_url || prev.photoURL
               };
             });
@@ -182,10 +189,24 @@ export default function App() {
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+      if (companySwitcherRef.current && !companySwitcherRef.current.contains(e.target as Node)) setCompanySwitcherOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // Load companies + branches for the company switcher and company-scoped branch lists
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const [{ data: comps }, { data: brs }] = await Promise.all([
+        supabase.from('companies').select('id, name, logo_url').order('name'),
+        supabase.from('branches').select('id, name, company_id').order('name'),
+      ]);
+      setCompanies(comps || []);
+      setAllBranchesData(brs || []);
+    })();
+  }, [user]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -207,6 +228,22 @@ export default function App() {
   const isAdmin = user?.role === 'Admin';
   const moreViewActive = ['settings', 'financials', 'audit-checklist'].includes(currentView);
 
+  // Company scoping: admins can switch; everyone else is locked to their profile's company
+  const effectiveCompanyId = isAdmin ? activeCompanyId : (user?.companyId || 'big-dental');
+  const activeCompany = companies.find(c => c.id === effectiveCompanyId) || null;
+  const companyName = activeCompany?.name || 'Big Dental Clinic';
+  const companyLogo = activeCompany?.logo_url || null;
+  const companyBranches = allBranchesData.filter(b => b.company_id === effectiveCompanyId).map(b => b.id);
+
+  const handleSwitchCompany = (id: string) => {
+    setActiveCompanyId(id);
+    localStorage.setItem('activeCompanyId', id);
+    setCompanySwitcherOpen(false);
+    setActiveBranch('Main Branch');
+    setCurrentView('dashboard');
+    setRefreshKey(k => k + 1);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-surface relative">
       {darkMode && (
@@ -223,6 +260,55 @@ export default function App() {
           <span className="text-lg md:text-xl font-extrabold text-primary tracking-tighter flex items-center gap-1">
             BIGStock <Sparkles className="text-amber-400 animate-pulse" size={16} />
           </span>
+
+          {/* Company switcher — Admin/HOD only */}
+          {isAdmin && companies.length > 1 && (
+            <div className="relative" ref={companySwitcherRef}>
+              <button
+                onClick={() => setCompanySwitcherOpen(v => !v)}
+                className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-xs font-bold text-slate-700 hover:border-primary/40 active:scale-95 transition-all"
+              >
+                <span className="w-5 h-5 rounded bg-primary-container/10 flex items-center justify-center overflow-hidden shrink-0">
+                  {companyLogo ? <img src={companyLogo} alt="" className="w-full h-full object-cover" /> : <Building2 size={12} className="text-primary" />}
+                </span>
+                <span className="max-w-[140px] truncate">{companyName}</span>
+                <ChevronDown size={13} className={`transition-transform ${companySwitcherOpen ? 'rotate-180' : ''}`} />
+              </button>
+              <AnimatePresence>
+                {companySwitcherOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute left-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-100 z-[100] overflow-hidden"
+                  >
+                    <div className="px-4 py-2.5 border-b border-slate-100">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Switch Company</span>
+                    </div>
+                    <div className="p-1.5">
+                      {companies.map(c => {
+                        const active = c.id === effectiveCompanyId;
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={() => handleSwitchCompany(c.id)}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold transition-all ${active ? 'bg-primary/10 text-primary' : 'text-slate-700 hover:bg-slate-50'}`}
+                          >
+                            <span className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center overflow-hidden shrink-0">
+                              {c.logo_url ? <img src={c.logo_url} alt="" className="w-full h-full object-cover" /> : <Building2 size={15} className="text-slate-400" />}
+                            </span>
+                            <span className="flex-1 text-left truncate">{c.name}</span>
+                            {active && <Check size={16} className="text-primary shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
           {/* Desktop nav */}
           <nav className="hidden md:flex gap-6 items-center">
             <button onClick={() => setCurrentView('dashboard')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'dashboard' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Dashboard</button>
@@ -330,11 +416,13 @@ export default function App() {
           <div className="mb-6">
             <div className="flex items-center gap-3 mb-2">
               <div className="w-8 h-8 rounded bg-primary-container flex items-center justify-center text-white overflow-hidden shrink-0">
-                <img src="/logo.png" alt="Big Dental Clinic" className="w-full h-full object-cover bg-white" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
-                <Hospital size={16} className="hidden" />
+                {companyLogo ? (
+                  <img src={companyLogo} alt={companyName} className="w-full h-full object-cover bg-white" onError={(e) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
+                ) : null}
+                <Building2 size={16} className={companyLogo ? 'hidden' : ''} />
               </div>
               <div>
-                <h3 className="text-sm font-manrope font-bold text-slate-800 leading-none">BIG DENTAL CLINIC</h3>
+                <h3 className="text-sm font-manrope font-bold text-slate-800 leading-none uppercase">{companyName}</h3>
                 <p className="text-[9px] font-inter font-semibold uppercase tracking-widest text-slate-500 mt-1">Stock Management</p>
               </div>
             </div>
@@ -349,7 +437,7 @@ export default function App() {
               </>
             )}
             {!isAdmin && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 px-4">My Assigned Branch</p>}
-            {BRANCH_NAMES.filter(branch => isAdmin || user?.assignedBranch === branch).map(branch => (
+            {companyBranches.filter(branch => isAdmin || user?.assignedBranch === branch).map(branch => (
               <SidebarItem key={branch} icon={MapPin} label={branch} active={activeBranch === branch} onClick={() => setActiveBranch(branch)} />
             ))}
           </nav>
@@ -374,19 +462,19 @@ export default function App() {
         <main className="flex-1 lg:ml-64 p-4 md:p-6 lg:p-8 pb-24 lg:pb-8">
           <AnimatePresence mode="wait">
             {currentView === 'dashboard' ? (
-              <DashboardView key={`dashboard-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} user={user} onDataRefresh={() => setRefreshKey(k => k + 1)} />
+              <DashboardView key={`dashboard-${effectiveCompanyId}-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} activeCompany={effectiveCompanyId} user={user} onDataRefresh={() => setRefreshKey(k => k + 1)} />
             ) : currentView === 'multi-branch' ? (
-              <MultiBranchView key="multi-branch" onOpenTransfer={() => setIsTransferModalOpen(true)} user={user} refreshKey={refreshKey} />
+              <MultiBranchView key={`multi-branch-${effectiveCompanyId}`} onOpenTransfer={() => setIsTransferModalOpen(true)} user={user} refreshKey={refreshKey} activeCompany={effectiveCompanyId} />
             ) : currentView === 'stock-comparison' ? (
-              <StockComparisonView key="stock-comparison" activeBranch={activeBranch} refreshKey={refreshKey} />
+              <StockComparisonView key={`stock-comparison-${effectiveCompanyId}`} activeBranch={activeBranch} refreshKey={refreshKey} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
             ) : currentView === 'inventory' ? (
-              <InventoryView key={`inventory-${activeBranch}`} activeBranch={activeBranch} user={user} />
+              <InventoryView key={`inventory-${effectiveCompanyId}-${activeBranch}`} activeBranch={activeBranch} user={user} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
             ) : currentView === 'settings' ? (
-              <SettingsView user={user} darkMode={darkMode} onToggleDarkMode={() => setDarkMode(v => !v)} />
+              <SettingsView user={user} darkMode={darkMode} onToggleDarkMode={() => setDarkMode(v => !v)} activeCompany={effectiveCompanyId} />
             ) : currentView === 'financials' ? (
-              <FinancialsView key="financials" user={user} />
+              <FinancialsView key={`financials-${effectiveCompanyId}`} user={user} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
             ) : (
-              <AuditChecklist key="audit" onBack={() => setCurrentView('dashboard')} user={user} />
+              <AuditChecklist key={`audit-${effectiveCompanyId}`} onBack={() => setCurrentView('dashboard')} user={user} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
             )}
           </AnimatePresence>
         </main>
@@ -480,7 +568,7 @@ export default function App() {
                     {activeBranch === 'Main Branch' && <span className="ml-auto text-[10px] uppercase tracking-widest opacity-70">Active</span>}
                   </button>
                 )}
-                {BRANCH_NAMES.filter(b => isAdmin || user?.assignedBranch === b).map(branch => (
+                {companyBranches.filter(b => isAdmin || user?.assignedBranch === b).map(branch => (
                   <button
                     key={branch}
                     onClick={() => { setActiveBranch(branch); setMobileBranchOpen(false); }}
@@ -571,6 +659,8 @@ export default function App() {
         isOpen={isTransferModalOpen}
         onClose={() => setIsTransferModalOpen(false)}
         user={user}
+        companyBranches={companyBranches}
+        activeCompany={effectiveCompanyId}
       />
     </div>
   );

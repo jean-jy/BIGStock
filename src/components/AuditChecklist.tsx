@@ -18,7 +18,7 @@ interface AuditItem {
   unit: string;
 }
 
-export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: any, key?: string }) {
+export function AuditChecklist({ onBack, user, activeCompany = 'big-dental', companyBranches = [] }: { onBack: () => void, user?: any, activeCompany?: string, companyBranches?: string[], key?: string }) {
   const isAdmin = user?.role === 'Admin';
 
   // Resolve the user's assigned branch ID upfront (strip " Branch" suffix if present)
@@ -51,8 +51,8 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
       setLoading(true);
       try {
         const [invResult, branchResult] = await Promise.all([
-          supabase.from('inventory').select('id, name, sku, category, total, unit, item_type').order('category').order('name'),
-          supabase.from('branches').select('id').order('name')
+          supabase.from('inventory').select('id, name, sku, category, total, unit, item_type').eq('company_id', activeCompany).order('category').order('name'),
+          supabase.from('branches').select('id').eq('company_id', activeCompany).order('name')
         ]);
         setAuditItems((invResult.data || [])
           .filter((item: any) => item.item_type !== 'Asset')
@@ -69,6 +69,9 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
         // For non-admin users, lock to assigned branch once branch list is confirmed
         if (!isAdmin && assignedBranchId && branchIds.includes(assignedBranchId)) {
           setSelectedBranch(assignedBranchId);
+        } else if (isAdmin && branchIds.length > 0 && !branchIds.includes(selectedBranch)) {
+          // Admin auditing a company whose branches don't include the current selection
+          setSelectedBranch(branchIds[0]);
         }
       } catch (err) {
         console.error('Error fetching audit data:', err);
@@ -170,7 +173,8 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
           items_checked: recordedCount,
           status,
           approval_status: 'PENDING',
-          is_recent: true
+          is_recent: true,
+          company_id: activeCompany
         });
 
       if (logError) throw logError;
@@ -197,7 +201,8 @@ export function AuditChecklist({ onBack, user }: { onBack: () => void, user?: an
         type: 'audit',
         title: auditNotes ? `Audit Completed (${status}) — ${auditNotes}` : `Audit Completed (${status})`,
         location: `${selectedBranch} Branch`,
-        time: new Date().toLocaleString('en-MY')
+        time: new Date().toLocaleString('en-MY'),
+        company_id: activeCompany
       });
 
       alert('Audit submitted successfully!');

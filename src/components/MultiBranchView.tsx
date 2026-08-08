@@ -22,7 +22,7 @@ interface MultiBranchItem {
   total: number;
 }
 
-export function MultiBranchView({ onOpenTransfer, user, refreshKey }: { onOpenTransfer: () => void, user?: any, refreshKey?: number, key?: string }) {
+export function MultiBranchView({ onOpenTransfer, user, refreshKey, activeCompany = 'big-dental' }: { onOpenTransfer: () => void, user?: any, refreshKey?: number, activeCompany?: string, key?: string }) {
   const [multiBranchData, setMultiBranchData] = useState<MultiBranchItem[]>([]);
   const [branchNames, setBranchNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,8 +33,8 @@ export function MultiBranchView({ onOpenTransfer, user, refreshKey }: { onOpenTr
       setLoading(true);
       try {
         const [branchResult, invResult, biResult] = await Promise.all([
-          supabase.from('branches').select('id, name').order('name'),
-          supabase.from('inventory').select('id, name, category').order('name'),
+          supabase.from('branches').select('id, name').eq('company_id', activeCompany).order('name'),
+          supabase.from('inventory').select('id, name, category').eq('company_id', activeCompany).order('name'),
           supabase.from('branch_inventory').select('branch_id, quantity, item_id')
         ]);
 
@@ -70,7 +70,7 @@ export function MultiBranchView({ onOpenTransfer, user, refreshKey }: { onOpenTr
     };
 
     fetchData();
-  }, [refreshKey]);
+  }, [refreshKey, activeCompany]);
 
   const filteredData = searchQuery.trim()
     ? multiBranchData.filter(item =>

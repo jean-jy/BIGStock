@@ -25,6 +25,12 @@ export interface InventoryItem {
 
 export const BRANCH_NAMES = ['Kepong', 'Jadehills', 'Puchong', 'Warehouse'] as const;
 export const USER_ROLES = ['Admin', 'Branch Manager', 'Staff'] as const;
+
+export interface Company {
+  id: string;
+  name: string;
+  logo_url: string | null;
+}
 export type UserRole = typeof USER_ROLES[number];
 
 export function getStatusForTotal(total: number): 'REORDER' | 'HEALTHY' | 'BALANCED' {

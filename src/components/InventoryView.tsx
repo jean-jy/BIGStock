@@ -3,7 +3,6 @@ import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpre
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
 import type { InventoryItem } from '../types';
-import { BRANCH_NAMES } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { Pagination } from './Pagination';
 
@@ -17,7 +16,7 @@ function normalizeCategory(cat: string): string {
     .join(' ');
 }
 
-export function InventoryView({ activeBranch, user }: { activeBranch: string, user?: any, key?: string }) {
+export function InventoryView({ activeBranch, user, activeCompany = 'big-dental', companyBranches = [] }: { activeBranch: string, user?: any, activeCompany?: string, companyBranches?: string[], key?: string }) {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -50,13 +49,13 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
   const PAGE_SIZE = 25;
 
   // Branch assignment (per-item modal)
-  const [selectedBranches, setSelectedBranches] = useState<string[]>([...BRANCH_NAMES]);
+  const [selectedBranches, setSelectedBranches] = useState<string[]>([...companyBranches]);
 
   // Bulk assign
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkBranchModal, setBulkBranchModal] = useState(false);
-  const [bulkBranches, setBulkBranches] = useState<string[]>([...BRANCH_NAMES]);
+  const [bulkBranches, setBulkBranches] = useState<string[]>([...companyBranches]);
   const [bulkSaving, setBulkSaving] = useState(false);
 
   const [newItem, setNewItem] = useState({
@@ -172,7 +171,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
           const chunk = itemsToInsert.slice(i, i + CHUNK_SIZE);
           const { error: err } = await supabase
             .from('inventory')
-            .upsert(chunk, { onConflict: 'sku' });
+            .upsert(chunk.map((c: any) => ({ ...c, company_id: activeCompany })), { onConflict: 'sku' });
           if (err) throw err;
         }
 
@@ -214,7 +213,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
       }
 
       const availableIds = isBranchView ? [...branchQtyMap.keys()] : [];
-      let invQuery = supabase.from('inventory').select('*').order('category').order('name').limit(5000);
+      let invQuery = supabase.from('inventory').select('*').eq('company_id', activeCompany).order('category').order('name').limit(5000);
       if (isBranchView) invQuery = invQuery.in('id', availableIds);
 
       const [invResult, historyResult] = await Promise.all([
@@ -265,7 +264,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
 
   useEffect(() => {
     fetchItems();
-  }, [activeBranch]);
+  }, [activeBranch, activeCompany]);
 
   const generateNextSku = (type: string) => {
     const isAsset = type === 'Asset';
@@ -281,7 +280,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
   const openAddModal = () => {
     const sku = generateNextSku('Stock');
     setNewItem({ name: '', subtext: '', category: categories[0] || '', sku, total: 0, unit: 'Units', price: 0, min_stock: 20, item_type: 'Stock', expiry_date: '' });
-    setSelectedBranches([...BRANCH_NAMES]);
+    setSelectedBranches([...companyBranches]);
     setEditingItem(null);
     setIsModalOpen(true);
   };
@@ -354,6 +353,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
             ...newItem,
             expiry_date: newItem.expiry_date || null,
             status,
+            company_id: activeCompany,
             last_audit: new Date().toISOString()
           })
           .select('id')
@@ -596,7 +596,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
           </button>
           {isBulkMode && bulkSelectedIds.size > 0 && (
             <button
-              onClick={() => { setBulkBranches([...BRANCH_NAMES]); setBulkBranchModal(true); }}
+              onClick={() => { setBulkBranches([...companyBranches]); setBulkBranchModal(true); }}
               className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-bold shadow-sm hover:opacity-90 transition-all rounded-md"
             >
               <GitBranch size={18} />
@@ -1032,7 +1032,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
                   <div className="col-span-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-2">Available at Branches</label>
                     <div className="flex flex-wrap gap-2">
-                      {BRANCH_NAMES.map(branch => (
+                      {companyBranches.map(branch => (
                         <label key={branch} className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-sm font-bold select-none ${selectedBranches.includes(branch) ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
                           <input
                             type="checkbox"
@@ -1087,7 +1087,7 @@ export function InventoryView({ activeBranch, user }: { activeBranch: string, us
               <div className="p-6 space-y-4">
                 <p className="text-xs text-slate-500">Select which branches these items should be available at. Branches unchecked will be removed.</p>
                 <div className="flex flex-col gap-2">
-                  {BRANCH_NAMES.map(branch => (
+                  {companyBranches.map(branch => (
                     <label key={branch} className={`flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-all font-bold text-sm select-none ${bulkBranches.includes(branch) ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
                       <input
                         type="checkbox"

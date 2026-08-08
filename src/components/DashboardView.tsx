@@ -23,7 +23,7 @@ function normalizeCategory(cat: string): string {
     .join(' ');
 }
 
-export function DashboardView({ onStartAudit, activeBranch, user, onDataRefresh }: { onStartAudit: () => void, activeBranch: string, user?: any, onDataRefresh?: () => void, key?: string }) {
+export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big-dental', user, onDataRefresh }: { onStartAudit: () => void, activeBranch: string, activeCompany?: string, user?: any, onDataRefresh?: () => void, key?: string }) {
   const [dashTab, setDashTab] = useState<'inventory' | 'audit' | 'procurement' | 'transactions'>('inventory');
   const [activeItemType, setActiveItemType] = useState<'All' | 'Stock' | 'Asset'>('All');
   const [currentPage, setCurrentPage] = useState(1);
@@ -64,12 +64,12 @@ export function DashboardView({ onStartAudit, activeBranch, user, onDataRefresh 
     setLoading(true);
     try {
       const [invResult, txResult, auditResult, poResult, supplierResult, branchResult, branchInvResult, allBranchInvResult] = await Promise.all([
-        supabase.from('inventory').select('*').order('category').order('name').limit(5000),
+        supabase.from('inventory').select('*').eq('company_id', activeCompany).order('category').order('name').limit(5000),
         supabase.from('inventory_transactions').select('*').order('created_at', { ascending: false }).limit(20),
-        supabase.from('audit_logs').select('*, audit_mismatches(*)').order('created_at', { ascending: false }),
+        supabase.from('audit_logs').select('*, audit_mismatches(*)').eq('company_id', activeCompany).order('created_at', { ascending: false }),
         supabase.from('procurement_orders').select('*, procurement_order_items(*)').order('created_at', { ascending: false }),
         supabase.from('suppliers').select('name').order('name'),
-        supabase.from('branches').select('*').order('name'),
+        supabase.from('branches').select('*').eq('company_id', activeCompany).order('name'),
         supabase.from('branch_inventory').select('item_id, quantity, is_reorder_flagged').eq('branch_id', activeBranch),
         supabase.from('branch_inventory').select('item_id, quantity, branch_id, is_reorder_flagged')
       ]);
@@ -170,7 +170,7 @@ export function DashboardView({ onStartAudit, activeBranch, user, onDataRefresh 
 
   useEffect(() => {
     fetchData();
-  }, [activeBranch]);
+  }, [activeBranch, activeCompany]);
 
   const handleRecordUsage = async (e: React.FormEvent) => {
     e.preventDefault();

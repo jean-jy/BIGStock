@@ -39,7 +39,7 @@ const InputField = ({ label, icon: Icon, placeholder, type = "text", value = "",
   </div>
 );
 
-export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { user: any; darkMode?: boolean; onToggleDarkMode?: () => void }) {
+export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeCompany = 'big-dental' }: { user: any; darkMode?: boolean; onToggleDarkMode?: () => void; activeCompany?: string }) {
   const [activeTab, setActiveTab] = useState<'profile' | 'clinic' | 'notifications' | 'security' | 'data' | 'users' | 'suppliers' | 'schedules'>('profile');
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [supplierModalOpen, setSupplierModalOpen] = useState(false);
@@ -106,7 +106,7 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
   // Export master sheet
   const handleExportMasterSheet = async () => {
     try {
-      const { data, error } = await supabase.from('inventory').select('*').order('name');
+      const { data, error } = await supabase.from('inventory').select('*').eq('company_id', activeCompany).order('name');
       if (error) throw error;
       const headers = ['Name', 'SKU', 'Category', 'Type', 'Total', 'Unit', 'Price (RM)', 'Min Stock', 'Status'];
       const rows = (data || []).map(item => [item.name, item.sku, item.category, item.item_type || 'Stock', item.total, item.unit, (item.price || 0).toFixed(2), item.min_stock || 20, item.status]);
@@ -133,9 +133,9 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
     setLoading(true);
     try {
       const [usersResult, permsResult, branchesResult, clinicResult] = await Promise.all([
-        supabase.from('profiles').select('*').order('created_at'),
+        supabase.from('profiles').select('*').eq('company_id', activeCompany).order('created_at'),
         supabase.from('role_permissions').select('*').order('id'),
-        supabase.from('branches').select('*').order('name'),
+        supabase.from('branches').select('*').eq('company_id', activeCompany).order('name'),
         supabase.from('clinic_info').select('*').single()
       ]);
 
@@ -196,7 +196,8 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
     fetchSettingsData();
     fetchSuppliers();
     fetchSchedules();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCompany]);
 
   const handleSaveSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1048,9 +1049,10 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
                         email: userForm.email,
                         role: baseRole,
                         assigned_branch: userForm.branch,
+                        company_id: activeCompany,
                         avatar_url: `https://picsum.photos/seed/${data.user.id}/100/100`
                       });
-                      
+
                       if (profileError) {
                         console.error('Profile Upsert Error:', profileError);
                         // If it fails because of role, try one more time with 'Staff' as ultimate fallback
@@ -1059,7 +1061,8 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode }: { use
                           full_name: userForm.name,
                           email: userForm.email,
                           role: 'Staff',
-                          assigned_branch: userForm.branch
+                          assigned_branch: userForm.branch,
+                          company_id: activeCompany
                         });
                       }
                       
