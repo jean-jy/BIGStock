@@ -304,5 +304,5 @@ create index if not exists idx_profiles_company  on public.profiles(company_id);
 -- Foundational rows: the `default 'big-dental'` FKs above require these
 insert into public.companies (id, name, logo_url) values
   ('big-dental', 'Big Dental Clinic', '/logo.png'),
-  ('hydralab',   'Hydralab',          null)
+  ('hydralab',   'Hydralab',          '/hydralab-logo.png')
 on conflict (id) do nothing;
