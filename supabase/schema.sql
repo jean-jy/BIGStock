@@ -91,6 +91,7 @@ create table public.inventory (
   status text not null default 'HEALTHY' check (status in ('REORDER', 'HEALTHY', 'BALANCED')),
   price numeric(10,2) default 0,
   last_audit timestamptz,
+  low_stock_alert boolean not null default true,
   company_id text references public.companies(id) default 'big-dental',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

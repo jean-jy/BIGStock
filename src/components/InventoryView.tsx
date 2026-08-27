@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpreadsheet, Search, X, GitBranch, CheckSquare } from 'lucide-react';
+import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpreadsheet, Search, X, GitBranch, CheckSquare, Bell, BellOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
 import type { InventoryItem } from '../types';
@@ -411,6 +411,36 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
     }
   };
 
+  // Toggle low-stock alerts for a single item (optimistic)
+  const toggleLowStockAlert = async (item: InventoryItem) => {
+    const next = !(item.low_stock_alert ?? true);
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, low_stock_alert: next } : i));
+    const { error } = await supabase.from('inventory').update({ low_stock_alert: next }).eq('id', item.id);
+    if (error) {
+      console.error('Failed to toggle low-stock alert:', error);
+      setItems(prev => prev.map(i => i.id === item.id ? { ...i, low_stock_alert: !next } : i));
+      alert('Failed to update alert setting');
+    }
+  };
+
+  // Mute/unmute low-stock alerts for all bulk-selected items
+  const bulkSetLowStockAlert = async (enabled: boolean) => {
+    const ids = [...bulkSelectedIds];
+    if (ids.length === 0) return;
+    setBulkSaving(true);
+    setItems(prev => prev.map(i => bulkSelectedIds.has(i.id) ? { ...i, low_stock_alert: enabled } : i));
+    const { error } = await supabase.from('inventory').update({ low_stock_alert: enabled }).in('id', ids);
+    setBulkSaving(false);
+    if (error) {
+      console.error('Failed to bulk update low-stock alerts:', error);
+      alert('Failed to update alerts');
+      fetchItems();
+      return;
+    }
+    setIsBulkMode(false);
+    setBulkSelectedIds(new Set());
+  };
+
   const openEditModal = async (item: InventoryItem) => {
     setEditingItem(item);
     setNewItem({
@@ -595,13 +625,33 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
             {isBulkMode ? 'Exit Bulk' : 'Bulk Assign'}
           </button>
           {isBulkMode && bulkSelectedIds.size > 0 && (
-            <button
-              onClick={() => { setBulkBranches([...companyBranches]); setBulkBranchModal(true); }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-bold shadow-sm hover:opacity-90 transition-all rounded-md"
-            >
-              <GitBranch size={18} />
-              Assign Branches ({bulkSelectedIds.size})
-            </button>
+            <>
+              <button
+                onClick={() => { setBulkBranches([...companyBranches]); setBulkBranchModal(true); }}
+                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white text-sm font-bold shadow-sm hover:opacity-90 transition-all rounded-md"
+              >
+                <GitBranch size={18} />
+                Assign Branches ({bulkSelectedIds.size})
+              </button>
+              <button
+                onClick={() => bulkSetLowStockAlert(false)}
+                disabled={bulkSaving}
+                className="flex items-center gap-2 px-4 py-2.5 bg-white border border-amber-200 text-amber-600 text-sm font-bold shadow-sm hover:bg-amber-50 transition-all rounded-md disabled:opacity-50"
+                title="Turn OFF low-stock alerts for selected items"
+              >
+                <BellOff size={18} />
+                Mute Alerts ({bulkSelectedIds.size})
+              </button>
+              <button
+                onClick={() => bulkSetLowStockAlert(true)}
+                disabled={bulkSaving}
+                className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-sm font-bold shadow-sm hover:bg-slate-50 transition-all rounded-md disabled:opacity-50"
+                title="Turn ON low-stock alerts for selected items"
+              >
+                <Bell size={18} />
+                Unmute
+              </button>
+            </>
           )}
           <button
             onClick={openAddModal}
@@ -766,7 +816,14 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
               <button onClick={() => openEditModal(item)} className="flex items-center gap-1 px-3 py-1.5 bg-primary/5 text-primary text-xs font-bold rounded-lg">
                 <Pencil size={13} /> Edit
               </button>
-              <button onClick={() => handleDeleteItem(item.id)} className="ml-auto p-2 text-slate-400 hover:text-tertiary rounded-lg transition-colors">
+              <button
+                onClick={() => toggleLowStockAlert(item)}
+                className={`ml-auto p-2 rounded-lg transition-colors ${(item.low_stock_alert ?? true) ? 'text-slate-300' : 'text-amber-500 bg-amber-50'}`}
+                title={(item.low_stock_alert ?? true) ? 'Low-stock alerts ON — tap to mute' : 'Low-stock alerts MUTED — tap to enable'}
+              >
+                {(item.low_stock_alert ?? true) ? <Bell size={16} /> : <BellOff size={16} />}
+              </button>
+              <button onClick={() => handleDeleteItem(item.id)} className="p-2 text-slate-400 hover:text-tertiary rounded-lg transition-colors">
                 <Trash2 size={16} />
               </button>
             </div>
@@ -871,6 +928,13 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                     >
                       <Download size={13} />
                       Stock In
+                    </button>
+                    <button
+                      onClick={() => toggleLowStockAlert(item)}
+                      className={`p-2 rounded-lg transition-all ${(item.low_stock_alert ?? true) ? 'text-slate-300 hover:text-slate-500 hover:bg-slate-100' : 'text-amber-500 bg-amber-50 hover:bg-amber-100'}`}
+                      title={(item.low_stock_alert ?? true) ? 'Low-stock alerts ON — click to mute' : 'Low-stock alerts MUTED — click to enable'}
+                    >
+                      {(item.low_stock_alert ?? true) ? <Bell size={14} /> : <BellOff size={14} />}
                     </button>
                     <button
                       onClick={() => openEditModal(item)}

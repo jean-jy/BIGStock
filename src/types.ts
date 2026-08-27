@@ -21,6 +21,7 @@ export interface InventoryItem {
   is_reorder_flagged?: boolean;
   reorder_flag_remark?: string;
   item_type?: 'Stock' | 'Asset';
+  low_stock_alert?: boolean;
 }
 
 export const BRANCH_NAMES = ['Kepong', 'Jadehills', 'Puchong', 'Warehouse'] as const;

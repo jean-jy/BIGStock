@@ -84,7 +84,9 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
         const item = itemMap.get(row.item_id);
         if (!item) continue;
         const minStock = item.min_stock || 20;
-        const isBelowMin = row.quantity < minStock;
+        // Muted items don't trigger the automatic low-stock restock alert
+        const alertsOn = item.low_stock_alert !== false;
+        const isBelowMin = alertsOn && row.quantity < minStock;
         const isFlagged = !!row.is_reorder_flagged;
         if (!isBelowMin && !isFlagged) continue;
         if (!restock[row.branch_id]) restock[row.branch_id] = { name: branchNameMap.get(row.branch_id) || row.branch_id, items: [] };
