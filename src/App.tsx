@@ -255,6 +255,10 @@ export default function App() {
     setViewAsRole(role);
     setViewAsOpen(false);
     setCurrentView('dashboard');
+    // Non-admin roles preview a real branch — jump off HQ if we're on it
+    if (role !== 'Admin' && (activeBranch === 'Main Branch' || activeBranch === 'All Branches') && companyBranches.length > 0) {
+      setActiveBranch(companyBranches[0]);
+    }
   };
 
   const handleSwitchCompany = (id: string) => {
@@ -503,8 +507,9 @@ export default function App() {
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-4 mb-1 px-4">Branches</p>
               </>
             )}
-            {!isAdmin && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 px-4">My Assigned Branch</p>}
-            {companyBranches.filter(branch => isAdmin || user?.assignedBranch === branch).map(branch => (
+            {isImpersonating && <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest mb-1 px-4">Preview branch</p>}
+            {!isRealAdmin && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 px-4">My Assigned Branch</p>}
+            {companyBranches.filter(branch => isRealAdmin || user?.assignedBranch === branch).map(branch => (
               <SidebarItem key={branch} icon={MapPin} label={branch} active={activeBranch === branch} onClick={() => setActiveBranch(branch)} />
             ))}
           </nav>
@@ -635,7 +640,7 @@ export default function App() {
                     {activeBranch === 'Main Branch' && <span className="ml-auto text-[10px] uppercase tracking-widest opacity-70">Active</span>}
                   </button>
                 )}
-                {companyBranches.filter(b => isAdmin || user?.assignedBranch === b).map(branch => (
+                {companyBranches.filter(b => isRealAdmin || user?.assignedBranch === b).map(branch => (
                   <button
                     key={branch}
                     onClick={() => { setActiveBranch(branch); setMobileBranchOpen(false); }}
