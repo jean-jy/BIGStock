@@ -11,7 +11,7 @@ import {
   MoreHorizontal, ChevronDown, X,
   Settings, DollarSign, ClipboardCheck,
   AlertTriangle, Clock, ArrowLeftRight, CalendarX,
-  Building2, Check
+  Building2, Check, Eye
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase } from './supabase';
@@ -38,6 +38,9 @@ export default function App() {
   const [activeCompanyId, setActiveCompanyId] = useState<string>(() => localStorage.getItem('activeCompanyId') || 'big-dental');
   const [companySwitcherOpen, setCompanySwitcherOpen] = useState(false);
   const companySwitcherRef = useRef<HTMLDivElement>(null);
+  const [viewAsRole, setViewAsRole] = useState<'Admin' | 'Branch Manager' | 'Staff'>('Admin');
+  const [viewAsOpen, setViewAsOpen] = useState(false);
+  const viewAsRef = useRef<HTMLDivElement>(null);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -131,10 +134,12 @@ export default function App() {
       // Critical stock
       const { data: lowStock } = await supabase
         .from('branch_inventory')
-        .select('item_id, quantity, inventory(name, min_stock)')
+        .select('item_id, quantity, inventory(name, min_stock, low_stock_alert)')
         .lt('quantity', 5);
       for (const row of lowStock || []) {
         const inv = row.inventory as any;
+        // Skip items whose low-stock alert has been muted
+        if (inv && inv.low_stock_alert === false) continue;
         if (inv) items.push({ id: `stock-${row.item_id}`, type: 'stock', message: `${inv.name} critically low`, sub: `Only ${row.quantity} units remaining` });
       }
 
@@ -190,6 +195,7 @@ export default function App() {
     const handler = (e: MouseEvent) => {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
       if (companySwitcherRef.current && !companySwitcherRef.current.contains(e.target as Node)) setCompanySwitcherOpen(false);
+      if (viewAsRef.current && !viewAsRef.current.contains(e.target as Node)) setViewAsOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -225,7 +231,11 @@ export default function App() {
     return <LoginView />;
   }
 
-  const isAdmin = user?.role === 'Admin';
+  // "View as" — a real Admin can preview the app as a Branch Manager or Staff member.
+  const isRealAdmin = user?.role === 'Admin';
+  const effectiveRole = isRealAdmin ? viewAsRole : user?.role;
+  const isAdmin = effectiveRole === 'Admin';
+  const isImpersonating = isRealAdmin && effectiveRole !== 'Admin';
   const moreViewActive = ['settings', 'financials', 'audit-checklist'].includes(currentView);
 
   // Company scoping: admins can switch; everyone else is locked to their profile's company
@@ -234,6 +244,18 @@ export default function App() {
   const companyName = activeCompany?.name || 'Big Dental Clinic';
   const companyLogo = activeCompany?.logo_url || null;
   const companyBranches = allBranchesData.filter(b => b.company_id === effectiveCompanyId).map(b => b.id);
+
+  // The user object handed to the views reflects the previewed role. For a non-admin
+  // preview we also scope the impersonated user to the branch currently in view.
+  const viewUser = isImpersonating
+    ? { ...user, role: effectiveRole, assignedBranch: activeBranch }
+    : user;
+
+  const handleViewAsRole = (role: 'Admin' | 'Branch Manager' | 'Staff') => {
+    setViewAsRole(role);
+    setViewAsOpen(false);
+    setCurrentView('dashboard');
+  };
 
   const handleSwitchCompany = (id: string) => {
     setActiveCompanyId(id);
@@ -397,11 +419,56 @@ export default function App() {
               )}
             </AnimatePresence>
           </div>
+          {isRealAdmin && (
+            <div className="relative hidden sm:block" ref={viewAsRef}>
+              <button
+                onClick={() => setViewAsOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${isImpersonating ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-primary/30'}`}
+                title="Preview the app as another role"
+              >
+                <Eye size={13} />
+                <span className="hidden md:inline">View as:</span>
+                <span>{effectiveRole === 'Branch Manager' ? 'Manager' : effectiveRole}</span>
+                <ChevronDown size={12} className={`transition-transform ${viewAsOpen ? 'rotate-180' : ''}`} />
+              </button>
+              <AnimatePresence>
+                {viewAsOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 z-[100] overflow-hidden"
+                  >
+                    <div className="px-4 py-2.5 border-b border-slate-100">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Preview as role</span>
+                    </div>
+                    {(['Admin', 'Branch Manager', 'Staff'] as const).map(role => (
+                      <button
+                        key={role}
+                        onClick={() => handleViewAsRole(role)}
+                        className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-left transition-colors ${effectiveRole === role ? 'bg-primary/5 text-primary' : 'text-slate-700 hover:bg-slate-50'}`}
+                      >
+                        <Eye size={14} className={effectiveRole === role ? 'text-primary' : 'text-slate-300'} />
+                        {role === 'Branch Manager' ? 'Branch Manager' : role}
+                        {effectiveRole === role && <span className="ml-auto text-[9px] uppercase tracking-widest opacity-70">Current</span>}
+                      </button>
+                    ))}
+                    <div className="px-4 py-2 border-t border-slate-100 text-[10px] text-slate-400 leading-snug">
+                      Preview only — your real access stays Admin.
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
           <button onClick={() => alert('Help & Documentation coming soon.')} className="hidden md:block p-2 text-slate-500 hover:text-primary transition-colors"><HelpCircle size={20} /></button>
           <div className="flex items-center gap-2">
             <div className="text-right hidden sm:block">
               <p className="text-xs font-bold text-slate-900 leading-tight">{user.displayName}</p>
-              <p className="text-[9px] font-bold text-primary uppercase tracking-widest">{user.role}</p>
+              <p className={`text-[9px] font-bold uppercase tracking-widest ${isImpersonating ? 'text-amber-600' : 'text-primary'}`}>
+                {isImpersonating ? `Viewing as ${effectiveRole}` : user.role}
+              </p>
             </div>
             <div className="h-9 w-9 rounded-full bg-slate-200 overflow-hidden border-2 border-slate-100 shadow-sm">
               <img src={user.photoURL || `https://picsum.photos/seed/${user.uid}/100/100`} alt="User" className="w-full h-full object-cover" />
@@ -462,19 +529,19 @@ export default function App() {
         <main className="flex-1 lg:ml-64 p-4 md:p-6 lg:p-8 pb-24 lg:pb-8">
           <AnimatePresence mode="wait">
             {currentView === 'dashboard' ? (
-              <DashboardView key={`dashboard-${effectiveCompanyId}-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} activeCompany={effectiveCompanyId} user={user} onDataRefresh={() => setRefreshKey(k => k + 1)} />
+              <DashboardView key={`dashboard-${effectiveRole}-${effectiveCompanyId}-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} activeCompany={effectiveCompanyId} user={viewUser} onDataRefresh={() => setRefreshKey(k => k + 1)} />
             ) : currentView === 'multi-branch' ? (
-              <MultiBranchView key={`multi-branch-${effectiveCompanyId}`} onOpenTransfer={() => setIsTransferModalOpen(true)} user={user} refreshKey={refreshKey} activeCompany={effectiveCompanyId} />
+              <MultiBranchView key={`multi-branch-${effectiveCompanyId}`} onOpenTransfer={() => setIsTransferModalOpen(true)} user={viewUser} refreshKey={refreshKey} activeCompany={effectiveCompanyId} />
             ) : currentView === 'stock-comparison' ? (
               <StockComparisonView key={`stock-comparison-${effectiveCompanyId}`} activeBranch={activeBranch} refreshKey={refreshKey} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
             ) : currentView === 'inventory' ? (
-              <InventoryView key={`inventory-${effectiveCompanyId}-${activeBranch}`} activeBranch={activeBranch} user={user} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
+              <InventoryView key={`inventory-${effectiveRole}-${effectiveCompanyId}-${activeBranch}`} activeBranch={activeBranch} user={viewUser} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
             ) : currentView === 'settings' ? (
-              <SettingsView user={user} darkMode={darkMode} onToggleDarkMode={() => setDarkMode(v => !v)} activeCompany={effectiveCompanyId} />
+              <SettingsView user={viewUser} darkMode={darkMode} onToggleDarkMode={() => setDarkMode(v => !v)} activeCompany={effectiveCompanyId} />
             ) : currentView === 'financials' ? (
-              <FinancialsView key={`financials-${effectiveCompanyId}`} user={user} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
+              <FinancialsView key={`financials-${effectiveCompanyId}`} user={viewUser} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
             ) : (
-              <AuditChecklist key={`audit-${effectiveCompanyId}`} onBack={() => setCurrentView('dashboard')} user={user} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
+              <AuditChecklist key={`audit-${effectiveCompanyId}`} onBack={() => setCurrentView('dashboard')} user={viewUser} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
             )}
           </AnimatePresence>
         </main>
@@ -604,6 +671,23 @@ export default function App() {
                 <button onClick={() => setMobileMoreOpen(false)} className="p-1.5 rounded-full bg-slate-100 text-slate-500"><X size={16} /></button>
               </div>
               <div className="space-y-2">
+                {isRealAdmin && (
+                  <div className="mb-2 pb-3 border-b border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-1">Preview as role</p>
+                    <div className="flex gap-2">
+                      {(['Admin', 'Branch Manager', 'Staff'] as const).map(role => (
+                        <button
+                          key={role}
+                          onClick={() => { handleViewAsRole(role); setMobileMoreOpen(false); }}
+                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-2.5 rounded-xl text-xs font-bold transition-all ${effectiveRole === role ? 'bg-amber-100 text-amber-700 border border-amber-300' : 'bg-slate-50 text-slate-600'}`}
+                        >
+                          <Eye size={13} />
+                          {role === 'Branch Manager' ? 'Manager' : role}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {isAdmin && (
                   <button
                     onClick={() => { setCurrentView('audit-checklist'); setMobileMoreOpen(false); }}
@@ -658,7 +742,7 @@ export default function App() {
       <TransferModal
         isOpen={isTransferModalOpen}
         onClose={() => setIsTransferModalOpen(false)}
-        user={user}
+        user={viewUser}
         companyBranches={companyBranches}
         activeCompany={effectiveCompanyId}
       />
