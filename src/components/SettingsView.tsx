@@ -1101,7 +1101,12 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
                   <div>
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Assigned Branch</label>
                     <select value={userForm.branch} onChange={e => setUserForm({...userForm, branch: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/10 transition-all text-slate-700 font-semibold">
-                      {['All Branches', 'Main Branch', 'Kepong Branch', 'Jadehills Branch', 'Puchong', 'Setiawalk Branch'].map(b => <option key={b} value={b}>{b}</option>)}
+                      {(() => {
+                        const options = ['All Branches', ...branches.map((b: any) => b.id)];
+                        // Keep a legacy value selectable when editing an older user
+                        if (userForm.branch && !options.includes(userForm.branch)) options.push(userForm.branch);
+                        return options.map(b => <option key={b} value={b}>{b}</option>);
+                      })()}
                     </select>
                   </div>
                   <div>
