@@ -244,6 +244,7 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [userForm, setUserForm] = useState({ name: '', email: '', role: 'Staff', branch: 'All Branches', password: '' });
+  const [savingUser, setSavingUser] = useState(false);
 
   const handleAddUser = () => {
     setEditingUserId(null);
@@ -964,6 +965,8 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
               </div>
               <form onSubmit={async (e) => {
                 e.preventDefault();
+                if (savingUser) return;
+                setSavingUser(true);
                 try {
                   if (editingUserId) {
                     const baseRole = userForm.role.toLowerCase().includes('admin') ? 'Admin' : 
@@ -1073,6 +1076,8 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
                 } catch (err: any) {
                   console.error('Error saving user:', err);
                   alert('Failed to save user: ' + err.message);
+                } finally {
+                  setSavingUser(false);
                 }
                 setUserModalOpen(false);
               }} className="p-6 space-y-4">
@@ -1118,7 +1123,7 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
                 </div>
                 <div className="pt-2 flex gap-3">
                   <button type="button" onClick={() => setUserModalOpen(false)} className="flex-1 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all text-sm">Cancel</button>
-                  <button type="submit" className="flex-1 py-3 bg-primary text-white font-bold rounded-xl shadow-lg hover:opacity-90 transition-all text-sm">{editingUserId ? 'Save Changes' : 'Send Invite'}</button>
+                  <button type="submit" disabled={savingUser} className="flex-1 py-3 bg-primary text-white font-bold rounded-xl shadow-lg hover:opacity-90 transition-all text-sm disabled:opacity-60 disabled:cursor-wait">{savingUser ? 'Saving...' : editingUserId ? 'Save Changes' : 'Send Invite'}</button>
                 </div>
               </form>
             </motion.div>
