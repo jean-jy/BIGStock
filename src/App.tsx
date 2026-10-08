@@ -235,6 +235,7 @@ export default function App() {
   const isRealAdmin = user?.role === 'Admin';
   const effectiveRole = isRealAdmin ? viewAsRole : user?.role;
   const isAdmin = effectiveRole === 'Admin';
+  const canUseInventory = isAdmin || effectiveRole === 'Branch Manager';
   const isImpersonating = isRealAdmin && effectiveRole !== 'Admin';
   const moreViewActive = ['settings', 'financials', 'audit-checklist'].includes(currentView);
 
@@ -340,7 +341,7 @@ export default function App() {
             <button onClick={() => setCurrentView('dashboard')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'dashboard' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Dashboard</button>
             {isAdmin && <button onClick={() => setCurrentView('multi-branch')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'multi-branch' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Multi-Branch</button>}
             <button onClick={() => setCurrentView('stock-comparison')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'stock-comparison' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Comparison</button>
-            {isAdmin && <button onClick={() => setCurrentView('inventory')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'inventory' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Inventory</button>}
+            {canUseInventory && <button onClick={() => setCurrentView('inventory')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'inventory' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Inventory</button>}
             {isAdmin && <button onClick={() => setCurrentView('financials')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'financials' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Financials</button>}
             {isAdmin && <button onClick={() => setCurrentView('settings')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'settings' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Settings</button>}
           </nav>
@@ -573,7 +574,7 @@ export default function App() {
             </button>
           )}
 
-          {isAdmin && (
+          {canUseInventory && (
             <button
               onClick={() => setCurrentView('inventory')}
               className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl min-w-[52px] transition-all ${currentView === 'inventory' ? 'text-primary' : 'text-slate-400'}`}

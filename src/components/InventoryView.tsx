@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpreadsheet, Search, X, GitBranch, CheckSquare, Bell, BellOff } from 'lucide-react';
+import { Plus, Pencil, Trash2, Download, CheckCircle2, History, Upload, FileSpreadsheet, Search, X, GitBranch, CheckSquare, Bell, BellOff, MinusCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
 import type { InventoryItem } from '../types';
@@ -26,6 +26,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
   const [newCategoryName, setNewCategoryName] = useState('');
   const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
   const [stockInItem, setStockInItem] = useState<InventoryItem | null>(null);
+  const [stockDirection, setStockDirection] = useState<'in' | 'out'>('in');
   const [stockInForm, setStockInForm] = useState({
     quantity: 0,
     supplierName: '',
@@ -219,7 +220,8 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
       const [invResult, historyResult] = await Promise.all([
         invQuery,
         supabase.from('inventory_transactions')
-          .select('id, item_id, item_name, quantity, from_location, remarks, created_at')
+          .select('id, item_id, item_name, quantity, from_location, remarks, created_at, inventory!inner(company_id)')
+          .eq('inventory.company_id', activeCompany)
           .eq('type', 'STOCK_IN')
           .order('created_at', { ascending: false })
           .limit(30)
@@ -485,7 +487,8 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
     }
   };
 
-  const openStockInModal = (item: InventoryItem) => {
+  const openStockInModal = (item: InventoryItem, direction: 'in' | 'out' = 'in') => {
+    setStockDirection(direction);
     setStockInItem(item);
     setStockInForm({ quantity: 0, supplierName: '', invoiceNo: '', notes: '' });
     setIsStockInModalOpen(true);
@@ -500,51 +503,69 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
   const handleStockInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!stockInItem || stockInForm.quantity <= 0) return;
+    const isOut = stockDirection === 'out';
+    const qty = stockInForm.quantity;
 
     try {
+      const targetBranch = activeBranch === 'All Branches' ? 'Main Branch' : activeBranch;
+      const isBranchView = activeBranch !== 'Main Branch' && activeBranch !== 'All Branches';
+      let newTotal: number;
+
+      if (isBranchView) {
+        // 1. Adjust this branch's quantity
+        const { data: biRow } = await supabase.from('branch_inventory').select('id, quantity').eq('item_id', stockInItem.id).eq('branch_id', targetBranch).maybeSingle();
+        if (biRow) {
+          const next = isOut ? Math.max(0, biRow.quantity - qty) : biRow.quantity + qty;
+          const { error } = await supabase.from('branch_inventory').update({ quantity: next }).eq('id', biRow.id);
+          if (error) throw error;
+        } else if (!isOut) {
+          const { error } = await supabase.from('branch_inventory').insert({ item_id: stockInItem.id, branch_id: targetBranch, quantity: qty });
+          if (error) throw error;
+        }
+
+        // 2. Master total = sum across branches (item.total on this page is the branch qty in branch view)
+        const { data: allRows, error: sumErr } = await supabase.from('branch_inventory').select('quantity').eq('item_id', stockInItem.id);
+        if (sumErr) throw sumErr;
+        newTotal = (allRows || []).reduce((acc, r: any) => acc + (r.quantity || 0), 0);
+      } else {
+        // Consolidated view has no branch row to move — adjust the master total only
+        newTotal = isOut ? Math.max(0, stockInItem.total - qty) : stockInItem.total + qty;
+      }
       const alertLevel = stockInItem.min_stock || 20;
-      const newTotal = stockInItem.total + stockInForm.quantity;
       const status = newTotal < alertLevel ? 'REORDER' : (newTotal < alertLevel * 2 ? 'BALANCED' : 'HEALTHY');
-
-      const { error: invError } = await supabase
-        .from('inventory')
-        .update({
-          total: newTotal,
-          status,
-          last_audit: new Date().toISOString()
-        })
-        .eq('id', stockInItem.id);
-
+      const { error: invError } = await supabase.from('inventory').update({ total: newTotal, status }).eq('id', stockInItem.id);
       if (invError) throw invError;
 
-      const { error: txError } = await supabase.from('inventory_transactions').insert({
+      // 3. Record the movement
+      const performedBy = (await supabase.auth.getSession()).data.session?.user?.id;
+      const { error: txError } = await supabase.from('inventory_transactions').insert(isOut ? {
+        type: 'USAGE',
+        item_id: stockInItem.id,
+        item_name: stockInItem.name,
+        quantity: qty,
+        unit: stockInItem.unit,
+        from_location: targetBranch,
+        to_location: 'Consumed / Dispensed',
+        remarks: stockInForm.notes,
+        performed_by: performedBy
+      } : {
         type: 'STOCK_IN',
         item_id: stockInItem.id,
         item_name: stockInItem.name,
-        quantity: stockInForm.quantity,
+        quantity: qty,
         unit: stockInItem.unit,
         from_location: stockInForm.supplierName || 'Supplier',
-        to_location: activeBranch,
-        remarks: stockInForm.notes,
-        performed_by: (await supabase.auth.getSession()).data.session?.user?.id
+        to_location: targetBranch,
+        remarks: [stockInForm.invoiceNo && `Invoice: ${stockInForm.invoiceNo}`, stockInForm.notes].filter(Boolean).join(' — '),
+        performed_by: performedBy
       });
-
       if (txError) throw txError;
-
-      // SYNC BRANCH DATA
-      const targetBranch = activeBranch === 'All Branches' ? 'Main Branch' : activeBranch;
-      const { data: biRow } = await supabase.from('branch_inventory').select('id, quantity').eq('item_id', stockInItem.id).eq('branch_id', targetBranch).maybeSingle();
-      if (biRow) {
-        await supabase.from('branch_inventory').update({ quantity: biRow.quantity + stockInForm.quantity }).eq('id', biRow.id);
-      } else {
-        await supabase.from('branch_inventory').insert({ item_id: stockInItem.id, branch_id: targetBranch, quantity: stockInForm.quantity });
-      }
 
       fetchItems();
       closeStockInModal();
     } catch (error) {
-      console.error('Error recording stock-in:', error);
-      alert('Failed to record stock-in');
+      console.error(`Error recording stock-${isOut ? 'out' : 'in'}:`, error);
+      alert(`Failed to record stock ${isOut ? 'out' : 'in'}`);
     }
   };
 
@@ -566,6 +587,8 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
   });
 
   const isAdmin = user?.role === 'Admin';
+  // Managers can view stock and move it in/out; catalog editing stays Admin-only
+  const canEditCatalog = isAdmin;
   const tdCls = isAdmin ? 'px-4 py-2' : 'px-6 py-5';
   const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE);
   const paginatedItems = isAdmin ? filteredItems : filteredItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -602,6 +625,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
             <Download size={18} />
             Export CSV
           </button>
+          {canEditCatalog && (<>
           <button
             onClick={handleDownloadTemplate}
             className="flex items-center gap-2 px-4 py-2.5 border border-slate-200 text-slate-600 text-sm font-bold rounded-md hover:bg-white transition-all"
@@ -660,6 +684,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
             <Plus size={18} />
             Add New Item
           </button>
+          </>)}
         </div>
       </div>
 
@@ -709,7 +734,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
           <div key={cat} className="group relative flex items-center">
             <button 
               onClick={() => setActiveCategory(cat)}
-              className={`px-4 py-2 text-xs font-bold rounded-full border transition-all pr-8 ${
+              className={`px-4 py-2 text-xs font-bold rounded-full border transition-all ${canEditCatalog ? 'pr-8' : ''} ${
                 activeCategory === cat 
                   ? 'bg-primary text-white border-primary shadow-sm shadow-primary/20' 
                   : 'bg-white text-slate-500 border-slate-100 hover:border-primary/20 hover:text-primary'
@@ -717,7 +742,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
             >
               {cat}
             </button>
-            <div className="absolute right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {canEditCatalog && <div className="absolute right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }}
                 className="p-1 text-slate-400 hover:text-primary transition-colors"
@@ -732,11 +757,11 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
               >
                 <Trash2 size={10} />
               </button>
-            </div>
+            </div>}
           </div>
         ))}
 
-        {isAddingCategory ? (
+        {!canEditCatalog ? null : isAddingCategory ? (
           <div className="flex items-center gap-2 ml-2">
             <input
               autoFocus
@@ -813,6 +838,10 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
               <button onClick={() => openStockInModal(item)} className="flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-600 text-xs font-bold rounded-lg border border-green-100 active:scale-95">
                 <Download size={13} /> Stock In
               </button>
+              <button onClick={() => openStockInModal(item, 'out')} className="flex items-center gap-1 px-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-bold rounded-lg border border-orange-100 active:scale-95">
+                <MinusCircle size={13} /> Stock Out
+              </button>
+              {canEditCatalog && <>
               <button onClick={() => openEditModal(item)} className="flex items-center gap-1 px-3 py-1.5 bg-primary/5 text-primary text-xs font-bold rounded-lg">
                 <Pencil size={13} /> Edit
               </button>
@@ -826,6 +855,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
               <button onClick={() => handleDeleteItem(item.id)} className="p-2 text-slate-400 hover:text-tertiary rounded-lg transition-colors">
                 <Trash2 size={16} />
               </button>
+              </>}
             </div>
           </div>
           </React.Fragment>
@@ -930,6 +960,15 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                       Stock In
                     </button>
                     <button
+                      onClick={() => openStockInModal(item, 'out')}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-600 text-[11px] font-bold rounded-full border border-orange-100 hover:bg-orange-100 hover:text-orange-700 transition-all active:scale-95"
+                      title="Stock Out (Used / Dispensed)"
+                    >
+                      <MinusCircle size={13} />
+                      Stock Out
+                    </button>
+                    {canEditCatalog && <>
+                    <button
                       onClick={() => toggleLowStockAlert(item)}
                       className={`p-2 rounded-lg transition-all ${(item.low_stock_alert ?? true) ? 'text-slate-300 hover:text-slate-500 hover:bg-slate-100' : 'text-amber-500 bg-amber-50 hover:bg-amber-100'}`}
                       title={(item.low_stock_alert ?? true) ? 'Low-stock alerts ON — click to mute' : 'Low-stock alerts MUTED — click to enable'}
@@ -950,6 +989,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                     >
                       <Trash2 size={14} />
                     </button>
+                    </>}
                   </div>
                 </td>
               </tr>
@@ -1203,12 +1243,12 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                 <div className="flex justify-between items-start">
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                        <Download size={16} className="text-green-600" />
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${stockDirection === 'out' ? 'bg-orange-100' : 'bg-green-100'}`}>
+                        {stockDirection === 'out' ? <MinusCircle size={16} className="text-orange-600" /> : <Download size={16} className="text-green-600" />}
                       </div>
-                      <h3 className="text-xl font-manrope font-extrabold text-slate-900">Stock In</h3>
+                      <h3 className="text-xl font-manrope font-extrabold text-slate-900">{stockDirection === 'out' ? 'Stock Out' : 'Stock In'}</h3>
                     </div>
-                    <p className="text-xs text-slate-500">Record new stock received from supplier</p>
+                    <p className="text-xs text-slate-500">{stockDirection === 'out' ? 'Record stock used or dispensed' : 'Record new stock received from supplier'}</p>
                   </div>
                   <button onClick={closeStockInModal} className="text-slate-400 hover:text-slate-600 transition-colors">
                     <Plus size={24} className="rotate-45" />
@@ -1233,11 +1273,12 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
               <form onSubmit={handleStockInSubmit} className="p-6 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Quantity Received *</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">{stockDirection === 'out' ? 'Quantity Out *' : 'Quantity Received *'}</label>
                     <input
                       type="number"
                       required
                       min="1"
+                      max={stockDirection === 'out' ? stockInItem.total : undefined}
                       autoFocus
                       value={stockInForm.quantity || ''}
                       onChange={e => setStockInForm({...stockInForm, quantity: parseInt(e.target.value) || 0})}
@@ -1245,6 +1286,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                       placeholder="e.g. 50"
                     />
                   </div>
+                  {stockDirection === 'in' && <>
                   <div>
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Supplier Name *</label>
                     <input
@@ -1264,10 +1306,11 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                       placeholder="e.g. INV-2024-001"
                     />
                   </div>
+                  </>}
                   <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">New Total After Stock In</label>
-                    <div className="w-full bg-green-50 border border-green-100 rounded-lg px-4 py-2.5 text-sm font-bold text-green-700">
-                      {stockInItem.total + (stockInForm.quantity || 0)} {stockInItem.unit}
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">{stockDirection === 'out' ? 'Remaining After Stock Out' : 'New Total After Stock In'}</label>
+                    <div className={`w-full rounded-lg px-4 py-2.5 text-sm font-bold ${stockDirection === 'out' ? 'bg-orange-50 border border-orange-100 text-orange-700' : 'bg-green-50 border border-green-100 text-green-700'}`}>
+                      {stockDirection === 'out' ? Math.max(0, stockInItem.total - (stockInForm.quantity || 0)) : stockInItem.total + (stockInForm.quantity || 0)} {stockInItem.unit}
                     </div>
                   </div>
                   <div className="col-span-2">
@@ -1277,12 +1320,12 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                       onChange={e => setStockInForm({...stockInForm, notes: e.target.value})}
                       rows={2}
                       className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-green-200 focus:border-green-300 transition-all resize-none"
-                      placeholder="e.g. Batch #1234, Expiry: Dec 2025"
+                      placeholder={stockDirection === 'out' ? 'e.g. Used for patient treatment' : 'e.g. Batch #1234, Expiry: Dec 2025'}
                     />
                   </div>
                 </div>
 
-                {stockInForm.quantity > 0 && (
+                {stockDirection === 'in' && stockInForm.quantity > 0 && (
                   <div className="p-3 bg-green-50 border border-green-100 rounded-xl flex items-center gap-3">
                     <CheckCircle2 size={16} className="text-green-500 shrink-0" />
                     <p className="text-xs text-green-700">
@@ -1304,10 +1347,10 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                   <button
                     type="submit"
                     disabled={stockInForm.quantity <= 0}
-                    className="flex-1 py-3 bg-green-600 text-white font-bold rounded-xl shadow-lg hover:bg-green-700 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none"
+                    className={`flex-1 py-3 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none ${stockDirection === 'out' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-600 hover:bg-green-700'}`}
                   >
-                    <Download size={16} />
-                    Confirm Stock In
+                    {stockDirection === 'out' ? <MinusCircle size={16} /> : <Download size={16} />}
+                    {stockDirection === 'out' ? 'Confirm Stock Out' : 'Confirm Stock In'}
                   </button>
                 </div>
               </form>
