@@ -239,8 +239,9 @@ export default function App() {
   const isImpersonating = isRealAdmin && effectiveRole !== 'Admin';
   const moreViewActive = ['settings', 'financials', 'audit-checklist'].includes(currentView);
 
-  // Company scoping: admins can switch; everyone else is locked to their profile's company
-  const effectiveCompanyId = isAdmin ? activeCompanyId : (user?.companyId || 'big-dental');
+  // Company scoping: admins can switch; everyone else is locked to their profile's company.
+  // Uses the real role so a "View as" preview stays on the company the admin picked.
+  const effectiveCompanyId = isRealAdmin ? activeCompanyId : (user?.companyId || 'big-dental');
   const activeCompany = companies.find(c => c.id === effectiveCompanyId) || null;
   const companyName = activeCompany?.name || 'Big Dental Clinic';
   const companyLogo = activeCompany?.logo_url || null;
