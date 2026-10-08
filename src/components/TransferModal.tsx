@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, CheckCircle2, ArrowRightLeft, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
-import { BRANCH_NAMES } from '../types';
+import { BRANCH_NAMES, companySkipsApproval } from '../types';
 import type { InventoryItem } from '../types';
 
 export function TransferModal({ isOpen, onClose, user, companyBranches, activeCompany = 'big-dental' }: { isOpen: boolean, onClose: () => void, user?: any, companyBranches?: string[], activeCompany?: string }) {
@@ -17,6 +17,8 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
   const [fromStock, setFromStock] = useState<Record<string, number>>({});
 
   const isAdmin = user?.role === 'Admin';
+  // Admins always transfer instantly; some companies skip approval for everyone
+  const instant = isAdmin || companySkipsApproval(activeCompany);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -61,8 +63,8 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
         const item = inventory.find(i => i.id === selectedItem);
         if (!item) continue;
 
-        if (isAdmin) {
-          // Admin: immediate transfer
+        if (instant) {
+          // Immediate transfer
           await supabase.from('transfers').insert({
             from_branch_id: fromBranch, to_branch_id: toBranch,
             item_id: selectedItem, item_name: item.name,
@@ -118,10 +120,10 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
           <div className="flex justify-between items-center mb-6">
             <div>
               <h2 className="text-2xl font-manrope font-extrabold text-slate-900 tracking-tight">
-                {isAdmin ? 'Transfer Stock' : 'Request Stock Transfer'}
+                {instant ? 'Transfer Stock' : 'Request Stock Transfer'}
               </h2>
               <p className="text-slate-500 text-sm">
-                {isAdmin ? 'Instantly move inventory between branches.' : 'Submit a request — admin will approve.'}
+                {instant ? 'Instantly move inventory between branches.' : 'Submit a request — admin will approve.'}
               </p>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-slate-50 rounded-full transition-colors">
@@ -131,14 +133,14 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
 
           {success ? (
             <div className="py-12 text-center">
-              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${isAdmin ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${instant ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
                 <CheckCircle2 size={32} />
               </div>
               <h3 className="text-lg font-bold text-slate-900">
-                {isAdmin ? 'Transfer Completed' : 'Request Submitted'}
+                {instant ? 'Transfer Completed' : 'Request Submitted'}
               </h3>
               <p className="text-slate-500 text-sm mt-2">
-                {isAdmin ? 'Inventory balances have been updated.' : 'An admin will review and approve your request.'}
+                {instant ? 'Inventory balances have been updated.' : 'An admin will review and approve your request.'}
               </p>
             </div>
           ) : (
@@ -207,7 +209,7 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
                   className="w-full bg-slate-50 border border-slate-100 text-sm p-3 rounded-xl focus:ring-2 focus:ring-primary/10" />
               </div>
 
-              {!isAdmin && (
+              {!instant && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-xl">
                   <ArrowRightLeft size={14} className="text-blue-500 shrink-0" />
                   <p className="text-[11px] text-blue-600 font-medium">Your request will be reviewed by an admin before stock is moved.</p>
@@ -222,7 +224,7 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
                 <button type="submit"
                   disabled={loading || !linesValid || fromBranch === toBranch}
                   className="flex-1 py-3.5 bg-primary text-white rounded-2xl font-bold text-sm shadow-lg shadow-primary/20 hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50">
-                  {loading ? 'Submitting...' : isAdmin ? (lines.length > 1 ? `Transfer ${lines.length} Items` : 'Transfer Now') : (lines.length > 1 ? `Submit ${lines.length} Requests` : 'Submit Request')}
+                  {loading ? 'Submitting...' : instant ? (lines.length > 1 ? `Transfer ${lines.length} Items` : 'Transfer Now') : (lines.length > 1 ? `Submit ${lines.length} Requests` : 'Submit Request')}
                 </button>
               </div>
               {fromBranch === toBranch && <p className="text-[10px] text-red-500 font-bold text-center uppercase tracking-tight">Source and destination branches must be different</p>}

@@ -27,6 +27,10 @@ export interface InventoryItem {
 export const BRANCH_NAMES = ['Kepong', 'Jadehills', 'Puchong', 'Warehouse'] as const;
 export const USER_ROLES = ['Admin', 'Branch Manager', 'Staff'] as const;
 
+// Companies whose stock audits and transfers apply immediately, without admin approval
+export const NO_APPROVAL_COMPANIES = ['hydralab'];
+export const companySkipsApproval = (companyId?: string) => !!companyId && NO_APPROVAL_COMPANIES.includes(companyId);
+
 export interface Company {
   id: string;
   name: string;

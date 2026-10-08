@@ -3,6 +3,8 @@ import { Package, AlertCircle, ArrowLeft, Calendar, CheckCircle2, CloudUpload, S
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
 import { Pagination } from './Pagination';
+import { applyAuditToStock } from '../auditApproval';
+import { companySkipsApproval } from '../types';
 
 function normalizeCategory(cat: string): string {
   if (!cat) return cat;
@@ -20,6 +22,7 @@ interface AuditItem {
 
 export function AuditChecklist({ onBack, user, activeCompany = 'big-dental', companyBranches = [] }: { onBack: () => void, user?: any, activeCompany?: string, companyBranches?: string[], key?: string }) {
   const isAdmin = user?.role === 'Admin';
+  const skipApproval = companySkipsApproval(activeCompany);
 
   // Resolve the user's assigned branch ID upfront (strip " Branch" suffix if present)
   const assignedBranchId = (() => {
@@ -205,7 +208,17 @@ export function AuditChecklist({ onBack, user, activeCompany = 'big-dental', com
         company_id: activeCompany
       });
 
-      alert('Audit submitted successfully!');
+      if (skipApproval) {
+        await applyAuditToStock({
+          auditLogId,
+          branchId: selectedBranch,
+          approverName: auditorName,
+          performedBy: session?.user?.id,
+        });
+        alert('Audit submitted and stock updated!');
+      } else {
+        alert('Audit submitted successfully!');
+      }
       onBack();
     } catch (err) {
       console.error('Error submitting audit:', err);

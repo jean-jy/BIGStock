@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../supabase';
+import { applyAuditToStock } from '../auditApproval';
 import type { InventoryItem, ProcurementOrder, POLineItem, AuditLog } from '../types';
 import { StatsCard } from './StatsCard';
 import { StatusBadge } from './StatusBadge';
@@ -458,28 +459,6 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
     try {
       const approverName = user?.displayName || user?.email || 'Admin';
 
-      // 1. Fetch ALL counted items for this audit from audit_mismatches
-      const { data: auditRows, error: fetchErr } = await supabase
-        .from('audit_mismatches')
-        .select('*')
-        .eq('audit_log_id', log.id);
-      if (fetchErr) throw fetchErr;
-
-      const allAuditedItems = (auditRows || [])
-        .filter((m: any) => m.item_id)
-        .map((m: any) => ({
-          id: m.item_id as string,
-          name: m.name as string,
-          expected: m.expected as number,
-          actual: m.actual as number,
-          isMismatch: m.is_mismatch !== false,
-        }));
-
-      // Fall back to mismatchedItems from the loaded log if audit_mismatches has no rows
-      const itemsToUpdate = allAuditedItems.length > 0
-        ? allAuditedItems
-        : (log.mismatchedItems || []).filter(m => m.id).map(m => ({ ...m, isMismatch: true }));
-
       const branchId = log.branch.replace(/ Branch$/, '');
 
       // Validate branchId exists in branches table before touching branch_inventory
@@ -488,74 +467,15 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
         throw new Error(`Branch "${branchId}" not found. Please update the user profile's assigned branch to match a valid branch ID (${allBranches.map(b => b.id).join(', ')}).`);
       }
 
-      // 2. Update branch_inventory for ALL audited items (upsert — never deletes existing rows)
-      if (itemsToUpdate.length > 0) {
-        const { error: upsertErr } = await supabase.from('branch_inventory').upsert(
-          itemsToUpdate.map(m => ({ item_id: m.id, branch_id: branchId, quantity: m.actual })),
-          { onConflict: 'branch_id,item_id' }
-        );
-        if (upsertErr) throw upsertErr;
-      }
+      const { updatedCount, discrepancyCount } = await applyAuditToStock({
+        auditLogId: log.id,
+        branchId,
+        approverName,
+        performedBy: user?.id,
+        fallbackItems: log.mismatchedItems || [],
+      });
 
-      // 3. Re-fetch all branch quantities for affected items to compute correct totals
-      const itemIds = itemsToUpdate.map(m => m.id);
-      const { data: allBranchRows, error: branchFetchErr } = itemIds.length > 0
-        ? await supabase.from('branch_inventory').select('item_id, quantity').in('item_id', itemIds)
-        : { data: [], error: null };
-      if (branchFetchErr) throw branchFetchErr;
-
-      const totalByItem: Record<string, number> = {};
-      for (const row of allBranchRows || []) {
-        totalByItem[row.item_id] = (totalByItem[row.item_id] || 0) + (row.quantity || 0);
-      }
-
-      // 4. Record adjustment transactions only for items with actual discrepancies
-      const discrepancies = itemsToUpdate.filter(m => m.isMismatch);
-      if (discrepancies.length > 0) {
-        const { error: txErr } = await supabase.from('inventory_transactions').insert(
-          discrepancies.map(m => ({
-            type: 'ADJUSTMENT',
-            item_id: m.id,
-            item_name: m.name,
-            quantity: m.actual - m.expected,
-            unit: 'Units',
-            from_location: 'Stock Audit',
-            to_location: branchId,
-            remarks: `Audit approval by ${approverName}`,
-            performed_by: user?.id
-          }))
-        );
-        if (txErr) throw txErr;
-      }
-
-      // 5. Update last_audit (and totals/status) for ALL audited items in batches of 10
-      if (itemsToUpdate.length > 0) {
-        const BATCH_SIZE = 10;
-        for (let i = 0; i < itemsToUpdate.length; i += BATCH_SIZE) {
-          const batch = itemsToUpdate.slice(i, i + BATCH_SIZE);
-          const updateResults = await Promise.all(
-            batch.map(item => {
-              const newTotal = totalByItem[item.id] ?? item.actual;
-              const status = newTotal > 50 ? 'HEALTHY' : newTotal > 20 ? 'BALANCED' : 'REORDER';
-              return supabase.from('inventory').update({
-                total: newTotal, status, last_audit: new Date().toISOString()
-              }).eq('id', item.id);
-            })
-          );
-          const failedUpdates = updateResults.filter(r => r.error);
-          if (failedUpdates.length > 0) throw failedUpdates[0].error;
-        }
-      }
-
-      // 6. Mark audit approved — only reached if all data updates succeeded
-      const { error: approveErr } = await supabase.from('audit_logs').update({
-        approval_status: 'APPROVED',
-        approved_by_name: approverName,
-        approved_at: new Date().toISOString()
-      }).eq('id', log.id);
-      if (approveErr) throw approveErr;
-
-      alert(`Audit approved — ${itemsToUpdate.length} item(s) updated for ${branchId} (${discrepancies.length} discrepanc${discrepancies.length === 1 ? 'y' : 'ies'} corrected).`);
+      alert(`Audit approved — ${updatedCount} item(s) updated for ${branchId} (${discrepancyCount} discrepanc${discrepancyCount === 1 ? 'y' : 'ies'} corrected).`);
       fetchData();
       onDataRefresh?.();
     } catch (err) {
