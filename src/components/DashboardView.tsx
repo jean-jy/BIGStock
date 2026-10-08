@@ -45,6 +45,7 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
   const [viewType, setViewType] = useState<'consolidated' | 'branch'>('branch');
   const [branchInventory, setBranchInventory] = useState<Record<string, { qty: number; flagged: boolean }>>({});
   const [consolidatedQty, setConsolidatedQty] = useState<Record<string, number>>({});
+  const [branchDistribution, setBranchDistribution] = useState<{ id: string; name: string; units: number; share: number }[]>([]);
   const [approvingAuditId, setApprovingAuditId] = useState<string | null>(null);
   const [auditDetailLog, setAuditDetailLog] = useState<any | null>(null);
   const [auditDetailItems, setAuditDetailItems] = useState<any[]>([]);
@@ -65,7 +66,7 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
     try {
       const [invResult, txResult, auditResult, poResult, supplierResult, branchResult, branchInvResult, allBranchInvResult] = await Promise.all([
         supabase.from('inventory').select('*').eq('company_id', activeCompany).order('category').order('name').limit(5000),
-        supabase.from('inventory_transactions').select('*').order('created_at', { ascending: false }).limit(20),
+        supabase.from('inventory_transactions').select('*, inventory!inner(company_id)').eq('inventory.company_id', activeCompany).order('created_at', { ascending: false }).limit(20),
         supabase.from('audit_logs').select('*, audit_mismatches(*)').eq('company_id', activeCompany).order('created_at', { ascending: false }),
         supabase.from('procurement_orders').select('*, procurement_order_items(*)').order('created_at', { ascending: false }),
         supabase.from('suppliers').select('name').order('name'),
@@ -108,6 +109,18 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
         cqty[row.item_id] = (cqty[row.item_id] || 0) + (row.quantity || 0);
       });
       setConsolidatedQty(cqty);
+
+      // Share of this company's total stock units held at each of its branches
+      const unitsByBranch: Record<string, number> = {};
+      (allBranchInvResult.data || []).forEach((row: any) => {
+        if (!branchNameMap.has(row.branch_id) || !itemMap.has(row.item_id)) return;
+        unitsByBranch[row.branch_id] = (unitsByBranch[row.branch_id] || 0) + (row.quantity || 0);
+      });
+      const totalUnits = Object.values(unitsByBranch).reduce((a, b) => a + b, 0);
+      setBranchDistribution((branchResult.data || []).map((b: any) => {
+        const units = unitsByBranch[b.id] || 0;
+        return { id: b.id, name: b.name || b.id, units, share: totalUnits ? Math.round((units / totalUnits) * 100) : 0 };
+      }));
 
       setItems((invResult.data || []).map(i => ({ ...i, category: normalizeCategory(i.category || ''), lastAudit: i.last_audit ? new Date(i.last_audit).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Never' })));
       setTransactions(txResult.data || []);
@@ -1766,22 +1779,26 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               <div className="col-span-1 md:col-span-2 bg-surface-container-low p-6 rounded-2xl relative overflow-hidden">
                 <h4 className="text-lg font-manrope font-bold text-slate-900 mb-4">Branch Distribution Trend</h4>
-                <div className="h-48 w-full flex items-end gap-4 px-2 relative z-10">
-                  {[
-                    { name: 'Kepong', val: 34 },
-                    { name: 'Jadehills', val: 42 },
-                    { name: 'Setiawalk', val: 24 }
-                  ].map((branch) => (
-                    <div key={branch.name} className="flex-1 bg-primary/10 rounded-t-lg relative group">
-                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-primary text-white text-[10px] px-2 py-1 rounded">{branch.val}%</div>
-                      <div
-                        className="bg-primary-container w-full rounded-t-lg transition-all duration-1000"
-                        style={{ height: `${branch.val}%` }}
-                      ></div>
-                      <p className="text-[10px] font-bold text-center mt-2 text-slate-600">{branch.name}</p>
-                    </div>
-                  ))}
-                </div>
+                {branchDistribution.every(b => b.units === 0) ? (
+                  <div className="h-48 flex items-center justify-center text-xs text-slate-400 relative z-10">No branch stock recorded yet.</div>
+                ) : (
+                  <div className="h-48 w-full flex items-end gap-4 px-2 pb-6 relative z-10">
+                    {(() => {
+                      const maxShare = Math.max(...branchDistribution.map(b => b.share), 1);
+                      return branchDistribution.map((branch) => (
+                        <div key={branch.id} className="flex-1 h-full flex flex-col justify-end relative group">
+                          <div className="absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full opacity-0 group-hover:opacity-100 transition-opacity bg-primary text-white text-[10px] px-2 py-1 rounded whitespace-nowrap">{branch.units.toLocaleString()} units</div>
+                          <p className="text-[10px] font-bold text-center mb-1 text-slate-500">{branch.share}%</p>
+                          <div
+                            className="bg-primary-container w-full rounded-t-lg transition-all duration-1000"
+                            style={{ height: `${(branch.share / maxShare) * 80}%` }}
+                          ></div>
+                          <p className="text-[10px] font-bold text-center mt-2 text-slate-600 truncate" title={branch.name}>{branch.name}</p>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
                 <div className="absolute right-[-5%] bottom-[-5%] w-48 h-48 bg-primary/5 rounded-full blur-3xl"></div>
               </div>
 
