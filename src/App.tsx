@@ -252,6 +252,13 @@ export default function App() {
     ? { ...user, role: effectiveRole, assignedBranch: activeBranch }
     : user;
 
+  const VIEW_AS_ROLES = [
+    { role: 'Admin', label: 'Admin', blurb: 'Your full view — every company and branch, all settings.' },
+    { role: 'Branch Manager', label: 'Manager', blurb: 'Own branch only. Dashboard, Inventory with Stock In / Out, audits and transfers.' },
+    { role: 'Staff', label: 'Staff', blurb: 'Own branch only. Dashboard, Log Usage, audits and transfer requests — no Inventory tab.' },
+  ] as const;
+  const viewAsInfo = VIEW_AS_ROLES.find(r => r.role === effectiveRole) || VIEW_AS_ROLES[0];
+
   const handleViewAsRole = (role: 'Admin' | 'Branch Manager' | 'Staff') => {
     setViewAsRole(role);
     setViewAsOpen(false);
@@ -424,49 +431,6 @@ export default function App() {
               )}
             </AnimatePresence>
           </div>
-          {isRealAdmin && (
-            <div className="relative hidden sm:block" ref={viewAsRef}>
-              <button
-                onClick={() => setViewAsOpen(v => !v)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${isImpersonating ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-primary/30'}`}
-                title="Preview the app as another role"
-              >
-                <Eye size={13} />
-                <span className="hidden md:inline">View as:</span>
-                <span>{effectiveRole === 'Branch Manager' ? 'Manager' : effectiveRole}</span>
-                <ChevronDown size={12} className={`transition-transform ${viewAsOpen ? 'rotate-180' : ''}`} />
-              </button>
-              <AnimatePresence>
-                {viewAsOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -8, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -8, scale: 0.97 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 z-[100] overflow-hidden"
-                  >
-                    <div className="px-4 py-2.5 border-b border-slate-100">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Preview as role</span>
-                    </div>
-                    {(['Admin', 'Branch Manager', 'Staff'] as const).map(role => (
-                      <button
-                        key={role}
-                        onClick={() => handleViewAsRole(role)}
-                        className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm font-bold text-left transition-colors ${effectiveRole === role ? 'bg-primary/5 text-primary' : 'text-slate-700 hover:bg-slate-50'}`}
-                      >
-                        <Eye size={14} className={effectiveRole === role ? 'text-primary' : 'text-slate-300'} />
-                        {role === 'Branch Manager' ? 'Branch Manager' : role}
-                        {effectiveRole === role && <span className="ml-auto text-[9px] uppercase tracking-widest opacity-70">Current</span>}
-                      </button>
-                    ))}
-                    <div className="px-4 py-2 border-t border-slate-100 text-[10px] text-slate-400 leading-snug">
-                      Preview only — your real access stays Admin.
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
           <button onClick={() => alert('Help & Documentation coming soon.')} className="hidden md:block p-2 text-slate-500 hover:text-primary transition-colors"><HelpCircle size={20} /></button>
           <div className="flex items-center gap-2">
             <div className="text-right hidden sm:block">
@@ -552,6 +516,64 @@ export default function App() {
           </AnimatePresence>
         </main>
       </div>
+
+      {/* View as — floating role preview for real admins */}
+      {isRealAdmin && (
+        <div ref={viewAsRef} className="hidden lg:block fixed bottom-10 right-28 z-[60]">
+          <AnimatePresence>
+            {viewAsOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.97 }}
+                transition={{ duration: 0.15 }}
+                className="absolute bottom-full right-0 mb-3 w-80 bg-white rounded-2xl shadow-xl border border-slate-100 p-5"
+              >
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-3">View as</p>
+                <div className="flex flex-wrap gap-2">
+                  {VIEW_AS_ROLES.map(r => (
+                    <button
+                      key={r.role}
+                      onClick={() => { handleViewAsRole(r.role); setViewAsOpen(true); }}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold border transition-all ${effectiveRole === r.role ? 'bg-primary text-white border-primary shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-primary/40 hover:text-primary'}`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 mt-3 leading-relaxed">{viewAsInfo.blurb}</p>
+                {isImpersonating && companyBranches.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Previewing branch</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {companyBranches.map(b => (
+                        <button
+                          key={b}
+                          onClick={() => setActiveBranch(b)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${activeBranch === b ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-amber-300'}`}
+                        >
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <p className="text-[10px] text-slate-400 mt-4">Preview only — your real access stays Admin.</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <button
+            onClick={() => setViewAsOpen(v => !v)}
+            className={`flex items-center gap-2 px-5 py-3 rounded-full text-sm font-bold text-white shadow-lg transition-all active:scale-95 ${isImpersonating ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/30' : 'bg-primary hover:opacity-90 shadow-primary/30'}`}
+            title="Preview the app as another role"
+          >
+            <Eye size={16} />
+            <span>{isImpersonating ? `Viewing as ${viewAsInfo.label}` : 'Admin'}</span>
+            {isImpersonating && <span className="font-semibold opacity-80">· {activeBranch}</span>}
+            <ChevronDown size={14} className={`transition-transform ${viewAsOpen ? '' : 'rotate-180'}`} />
+          </button>
+        </div>
+      )}
 
       {/* Mobile Bottom Navigation */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-xl border-t border-slate-100 safe-area-pb">
