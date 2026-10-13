@@ -247,16 +247,20 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
       const dbCategories = Array.from(new Set(mappedItems.map(i => i.category).filter(Boolean))).sort();
       setCategories(dbCategories);
 
-      setStockInHistory((historyResult.data || []).map(tx => ({
+      setStockInHistory((historyResult.data || []).map(tx => {
+        // Stock In saves remarks as "Invoice: <no> — <notes>"; split them back out
+        const m = (tx.remarks || '').match(/^Invoice: (.+?)(?: — ([\s\S]*))?$/);
+        return {
         id: tx.id,
         itemId: tx.item_id,
         itemName: tx.item_name || 'Unknown Item',
         quantity: tx.quantity,
         supplierName: tx.from_location || '—',
-        invoiceNo: '',
-        notes: tx.remarks || '',
+        invoiceNo: m ? m[1] : '',
+        notes: m ? (m[2] || '') : (tx.remarks || ''),
         date: tx.created_at ? new Date(tx.created_at).toLocaleDateString('en-MY', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'
-      })));
+        };
+      }));
     } catch (error) {
       console.error('Error fetching inventory:', error);
     } finally {
@@ -1366,7 +1370,6 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                 </div>
                 <div className="flex items-center gap-4 text-xs text-slate-500">
                   <span>{record.date}</span>
-                  {record.supplierName && <span className="font-medium">{record.supplierName}</span>}
                   {record.invoiceNo && <span className="font-mono">{record.invoiceNo}</span>}
                 </div>
                 {record.notes && <p className="text-[10px] text-slate-400 mt-1">{record.notes}</p>}
@@ -1382,7 +1385,6 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                   <th className="px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Date</th>
                   <th className="px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Item</th>
                   <th className="px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Qty</th>
-                  <th className="px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Supplier</th>
                   <th className="px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Invoice</th>
                   <th className="px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Notes</th>
                 </tr>
@@ -1397,7 +1399,6 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                         +{record.quantity}
                       </span>
                     </td>
-                    <td className="px-6 py-3 text-xs text-slate-600">{record.supplierName}</td>
                     <td className="px-6 py-3 text-xs font-mono text-slate-400">{record.invoiceNo || '—'}</td>
                     <td className="px-6 py-3 text-xs text-slate-400">{record.notes || '—'}</td>
                   </tr>
