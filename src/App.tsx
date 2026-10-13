@@ -500,7 +500,7 @@ export default function App() {
         <main className="flex-1 lg:ml-64 p-4 md:p-6 lg:p-8 pb-24 lg:pb-8">
           <AnimatePresence mode="wait">
             {currentView === 'dashboard' ? (
-              <DashboardView key={`dashboard-${effectiveRole}-${effectiveCompanyId}-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} activeCompany={effectiveCompanyId} user={viewUser} onDataRefresh={() => setRefreshKey(k => k + 1)} />
+              <DashboardView key={`dashboard-${effectiveRole}-${effectiveCompanyId}-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} activeCompany={effectiveCompanyId} user={viewUser} onDataRefresh={() => setRefreshKey(k => k + 1)} raiseFab={isRealAdmin} />
             ) : currentView === 'multi-branch' ? (
               <MultiBranchView key={`multi-branch-${effectiveCompanyId}`} onOpenTransfer={() => setIsTransferModalOpen(true)} user={viewUser} refreshKey={refreshKey} activeCompany={effectiveCompanyId} />
             ) : currentView === 'stock-comparison' ? (
@@ -520,7 +520,7 @@ export default function App() {
 
       {/* View as — floating role preview for real admins */}
       {isRealAdmin && (
-        <div ref={viewAsRef} className="hidden lg:block fixed bottom-10 right-28 z-[60]">
+        <div ref={viewAsRef} className="hidden lg:block fixed bottom-4 right-4 z-[60]">
           <AnimatePresence>
             {viewAsOpen && (
               <motion.div

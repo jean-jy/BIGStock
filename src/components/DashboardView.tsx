@@ -24,7 +24,7 @@ function normalizeCategory(cat: string): string {
     .join(' ');
 }
 
-export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big-dental', user, onDataRefresh }: { onStartAudit: () => void, activeBranch: string, activeCompany?: string, user?: any, onDataRefresh?: () => void, key?: string }) {
+export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big-dental', user, onDataRefresh, raiseFab = false }: { onStartAudit: () => void, activeBranch: string, activeCompany?: string, user?: any, onDataRefresh?: () => void, raiseFab?: boolean, key?: string }) {
   const [dashTab, setDashTab] = useState<'inventory' | 'audit' | 'procurement' | 'transactions'>('inventory');
   const [activeItemType, setActiveItemType] = useState<'All' | 'Stock' | 'Asset'>('All');
   const [currentPage, setCurrentPage] = useState(1);
@@ -1751,7 +1751,8 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
       )}
 
       {/* FAB */}
-      <div className="fixed bottom-24 right-4 lg:bottom-8 lg:right-8 z-50 flex flex-col gap-4">
+      {/* Sits above the admin "View as" pill in the bottom-right corner */}
+      <div className={`fixed bottom-24 right-4 lg:right-8 z-50 flex flex-col gap-4 ${raiseFab ? 'lg:bottom-24' : 'lg:bottom-8'}`}>
         <button
           onClick={onStartAudit}
           className="w-12 h-12 bg-white text-primary rounded-full shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all group relative border border-slate-100"
