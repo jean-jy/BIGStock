@@ -1286,18 +1286,14 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                       placeholder="e.g. 50"
                     />
                   </div>
-                  {stockDirection === 'in' && <>
                   <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Supplier Name *</label>
-                    <input
-                      required
-                      value={stockInForm.supplierName}
-                      onChange={e => setStockInForm({...stockInForm, supplierName: e.target.value})}
-                      className="w-full bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-green-200 focus:border-green-300 transition-all"
-                      placeholder="e.g. Dentcare Solutions Sdn Bhd"
-                    />
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">{stockDirection === 'out' ? 'Remaining After Stock Out' : 'New Total After Stock In'}</label>
+                    <div className={`w-full rounded-lg px-4 py-2.5 text-sm font-bold ${stockDirection === 'out' ? 'bg-orange-50 border border-orange-100 text-orange-700' : 'bg-green-50 border border-green-100 text-green-700'}`}>
+                      {stockDirection === 'out' ? Math.max(0, stockInItem.total - (stockInForm.quantity || 0)) : stockInItem.total + (stockInForm.quantity || 0)} {stockInItem.unit}
+                    </div>
                   </div>
-                  <div>
+                  {stockDirection === 'in' && (
+                  <div className="col-span-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Invoice / DO No.</label>
                     <input
                       value={stockInForm.invoiceNo}
@@ -1306,13 +1302,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                       placeholder="e.g. INV-2024-001"
                     />
                   </div>
-                  </>}
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">{stockDirection === 'out' ? 'Remaining After Stock Out' : 'New Total After Stock In'}</label>
-                    <div className={`w-full rounded-lg px-4 py-2.5 text-sm font-bold ${stockDirection === 'out' ? 'bg-orange-50 border border-orange-100 text-orange-700' : 'bg-green-50 border border-green-100 text-green-700'}`}>
-                      {stockDirection === 'out' ? Math.max(0, stockInItem.total - (stockInForm.quantity || 0)) : stockInItem.total + (stockInForm.quantity || 0)} {stockInItem.unit}
-                    </div>
-                  </div>
+                  )}
                   <div className="col-span-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Notes (Optional)</label>
                     <textarea
