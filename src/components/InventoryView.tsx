@@ -27,6 +27,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
   const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
   const [stockInItem, setStockInItem] = useState<InventoryItem | null>(null);
   const [stockDirection, setStockDirection] = useState<'in' | 'out'>('in');
+  const [savingStock, setSavingStock] = useState(false);
   const [stockInForm, setStockInForm] = useState({
     quantity: 0,
     supplierName: '',
@@ -506,7 +507,8 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
 
   const handleStockInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!stockInItem || stockInForm.quantity <= 0) return;
+    if (!stockInItem || stockInForm.quantity <= 0 || savingStock) return;
+    setSavingStock(true);
     const isOut = stockDirection === 'out';
     const qty = stockInForm.quantity;
 
@@ -570,6 +572,8 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
     } catch (error) {
       console.error(`Error recording stock-${isOut ? 'out' : 'in'}:`, error);
       alert(`Failed to record stock ${isOut ? 'out' : 'in'}`);
+    } finally {
+      setSavingStock(false);
     }
   };
 
@@ -1340,11 +1344,11 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                   </button>
                   <button
                     type="submit"
-                    disabled={stockInForm.quantity <= 0}
+                    disabled={stockInForm.quantity <= 0 || savingStock}
                     className={`flex-1 py-3 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-40 disabled:pointer-events-none ${stockDirection === 'out' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-600 hover:bg-green-700'}`}
                   >
                     {stockDirection === 'out' ? <MinusCircle size={16} /> : <Download size={16} />}
-                    {stockDirection === 'out' ? 'Confirm Stock Out' : 'Confirm Stock In'}
+                    {savingStock ? 'Saving...' : stockDirection === 'out' ? 'Confirm Stock Out' : 'Confirm Stock In'}
                   </button>
                 </div>
               </form>
