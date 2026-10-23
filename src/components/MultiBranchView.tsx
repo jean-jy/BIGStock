@@ -20,6 +20,7 @@ interface MultiBranchItem {
   category: string;
   branches: Record<string, number>;
   total: number;
+  unit: string;
 }
 
 export function MultiBranchView({ onOpenTransfer, user, refreshKey, activeCompany = 'big-dental' }: { onOpenTransfer: () => void, user?: any, refreshKey?: number, activeCompany?: string, key?: string }) {
@@ -34,7 +35,7 @@ export function MultiBranchView({ onOpenTransfer, user, refreshKey, activeCompan
       try {
         const [branchResult, invResult, biResult] = await Promise.all([
           supabase.from('branches').select('id, name').eq('company_id', activeCompany).order('name'),
-          supabase.from('inventory').select('id, name, category').eq('company_id', activeCompany).order('name'),
+          supabase.from('inventory').select('id, name, category, unit').eq('company_id', activeCompany).order('name'),
           supabase.from('branch_inventory').select('branch_id, quantity, item_id')
         ]);
 
@@ -58,6 +59,7 @@ export function MultiBranchView({ onOpenTransfer, user, refreshKey, activeCompan
             category: normalizeCategory(inv.category || ''),
             branches: branchQtys,
             total,
+            unit: inv.unit || 'Units',
           };
         });
 
@@ -80,10 +82,11 @@ export function MultiBranchView({ onOpenTransfer, user, refreshKey, activeCompan
     : multiBranchData;
 
   const exportToCSV = () => {
-    const headers = ['Item Name', 'Category', ...branchNames, 'Total Network'];
+    const headers = ['Item Name', 'Category', 'Unit', ...branchNames, 'Total Network'];
     const rows = multiBranchData.map(item => [
       item.name,
       item.category,
+      item.unit,
       ...branchNames.map(b => item.branches[b] ?? 0),
       item.total
     ]);
@@ -169,12 +172,13 @@ export function MultiBranchView({ onOpenTransfer, user, refreshKey, activeCompan
                       <span className={`text-sm font-extrabold ${(item.branches[branch] || 0) < 10 ? 'text-tertiary' : 'text-slate-800'}`}>
                         {item.branches[branch] || 0}
                       </span>
+                      <span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
                     </div>
                   ))}
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-slate-50">
                   <span className="text-[10px] font-bold text-slate-400 uppercase">Total Network</span>
-                  <span className="text-sm font-extrabold text-primary">{item.total}</span>
+                  <span><span className="text-sm font-extrabold text-primary">{item.total}</span><span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></span>
                 </div>
               </div>
             ))}
@@ -213,10 +217,12 @@ export function MultiBranchView({ onOpenTransfer, user, refreshKey, activeCompan
                         <span className={`text-sm font-bold ${(item.branches[branch] || 0) < 10 ? 'text-tertiary' : 'text-slate-700'}`}>
                           {item.branches[branch] || 0}
                         </span>
+                        <span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
                       </td>
                     ))}
-                    <td className="px-6 py-5 text-right">
+                    <td className="px-6 py-5 text-right whitespace-nowrap">
                       <span className="text-sm font-extrabold text-primary">{item.total}</span>
+                      <span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
                     </td>
                   </tr>
                 ))}

@@ -217,7 +217,12 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
       .select('*')
       .eq('audit_log_id', log.id)
       .order('name');
-    setHistoryItems(data || []);
+    const itemIds = (data || []).map((m: any) => m.item_id).filter(Boolean);
+    const { data: units } = itemIds.length
+      ? await supabase.from('inventory').select('id, unit').in('id', itemIds)
+      : { data: [] as any[] };
+    const unitById = new Map((units || []).map((u: any) => [u.id, u.unit]));
+    setHistoryItems((data || []).map((m: any) => ({ ...m, unit: unitById.get(m.item_id) || 'Units' })));
   };
 
   const handleVoidUsage = async (usage: UsageData) => {
@@ -437,16 +442,16 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                     <div className="grid grid-cols-3 gap-2 mb-3">
                       <div className="bg-slate-50 rounded-lg p-2.5 text-center">
                         <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Last</p>
-                        <p className="text-sm font-bold text-slate-500">{item.lastCount}</p>
+                        <p className="text-sm font-bold text-slate-500">{item.lastCount}<span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></p>
                       </div>
                       <div className="bg-slate-50 rounded-lg p-2.5 text-center">
                         <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Latest</p>
-                        <p className="text-sm font-bold text-slate-900">{item.currentCount}</p>
+                        <p className="text-sm font-bold text-slate-900">{item.currentCount}<span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></p>
                       </div>
                       <div className="bg-slate-50 rounded-lg p-2.5 text-center">
                         <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Variance</p>
                         <p className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-tertiary' : 'text-slate-400'}`}>
-                          {diff > 0 ? `+${diff}` : diff}
+                          {diff > 0 ? `+${diff}` : diff}<span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
                         </p>
                       </div>
                     </div>
@@ -481,12 +486,13 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                           <p className="text-sm font-bold text-slate-900">{item.name}</p>
                           <p className="text-[10px] text-slate-400 uppercase tracking-tight font-medium">SKU: {item.sku}</p>
                         </td>
-                        <td className="px-6 py-5 text-center text-sm font-medium text-slate-500">{item.lastCount}</td>
-                        <td className="px-6 py-5 text-center text-sm font-bold text-slate-900">{item.currentCount}</td>
+                        <td className="px-6 py-5 text-center text-sm font-medium text-slate-500 whitespace-nowrap">{item.lastCount}<span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></td>
+                        <td className="px-6 py-5 text-center text-sm font-bold text-slate-900 whitespace-nowrap">{item.currentCount}<span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></td>
                         <td className="px-6 py-5 text-center">
                           <span className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-tertiary' : 'text-slate-400'}`}>
                             {diff > 0 ? `+${diff}` : diff}
                           </span>
+                          <span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
                         </td>
                         <td className="px-6 py-5 text-right">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
@@ -627,8 +633,8 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                               <p className="text-sm font-bold text-slate-900">{item.name}</p>
                               <p className="text-[10px] text-slate-400 font-mono">{item.sku}</p>
                             </td>
-                            <td className="px-6 py-4 text-center text-sm text-slate-500">{item.expected}</td>
-                            <td className="px-6 py-4 text-center text-sm font-bold text-slate-900">{item.actual}</td>
+                            <td className="px-6 py-4 text-center text-sm text-slate-500 whitespace-nowrap">{item.expected}<span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></td>
+                            <td className="px-6 py-4 text-center text-sm font-bold text-slate-900 whitespace-nowrap">{item.actual}<span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></td>
                             <td className="px-6 py-4 text-center">
                               <span className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-red-500' : 'text-slate-400'}`}>
                                 {diff > 0 ? `+${diff}` : diff}
