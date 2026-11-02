@@ -188,6 +188,9 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
     fetchData();
   }, [activeBranch, activeCompany]);
 
+  // Main Branch is consolidated (no stock of its own); non-admins log usage against a real branch
+  const canLogUsage = user?.role === 'Admin' || activeBranch !== 'Main Branch';
+
   const handleRecordUsage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!usageForm.itemId || usageForm.quantity <= 0) return;
@@ -686,13 +689,13 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
               </button>
             </div>
           )}
-          <button
+          {canLogUsage && <button
             onClick={() => setUsageModalOpen(true)}
             className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-teal-500 to-emerald-500 text-white text-sm font-bold shadow-lg hover:opacity-90 transition-all rounded-md active:scale-95"
           >
             <MinusCircle size={16} />
             Log Usage
-          </button>
+          </button>}
           <button
             onClick={onStartAudit}
             className="flex items-center gap-2 px-5 py-2.5 bg-primary-container text-white text-sm font-bold shadow-sm hover:opacity-90 transition-opacity rounded-md"
@@ -724,13 +727,13 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
             </div>
           )}
           <div className="flex items-center gap-2">
-            <button
+            {canLogUsage && <button
               onClick={() => setUsageModalOpen(true)}
               className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-r from-teal-500 to-emerald-500 text-white text-xs font-bold rounded-md active:scale-95"
             >
               <MinusCircle size={14} />
               Log Usage
-            </button>
+            </button>}
             <button
               onClick={onStartAudit}
               className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-primary-container text-white text-xs font-bold rounded-md active:scale-95"

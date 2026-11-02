@@ -224,6 +224,8 @@ export default function App() {
   const effectiveRole = isRealAdmin ? viewAsRole : user?.role;
   const isAdmin = effectiveRole === 'Admin';
   const canUseInventory = isAdmin || effectiveRole === 'Branch Manager';
+  // Managers can also open the consolidated Main Branch (HQ) view
+  const canSeeMainBranch = canUseInventory;
   const isImpersonating = isRealAdmin && effectiveRole !== 'Admin';
   const moreViewActive = ['settings', 'financials', 'audit-checklist'].includes(currentView);
 
@@ -253,7 +255,7 @@ export default function App() {
     setViewAsOpen(false);
     setCurrentView('dashboard');
     // Non-admin roles preview a real branch — jump off HQ if we're on it
-    if (role !== 'Admin' && (activeBranch === 'Main Branch' || activeBranch === 'All Branches') && companyBranches.length > 0) {
+    if (role === 'Staff' && (activeBranch === 'Main Branch' || activeBranch === 'All Branches') && companyBranches.length > 0) {
       setActiveBranch(companyBranches[0]);
     }
   };
@@ -454,7 +456,7 @@ export default function App() {
           </div>
 
           <nav className="flex flex-col gap-1">
-            {isAdmin && (
+            {canSeeMainBranch && (
               <>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 px-4">Headquarters</p>
                 <SidebarItem icon={MapPin} label="Main Branch" active={activeBranch === 'Main Branch'} onClick={() => setActiveBranch('Main Branch')} />
@@ -642,7 +644,7 @@ export default function App() {
                 <button onClick={() => setMobileBranchOpen(false)} className="p-1.5 rounded-full bg-slate-100 text-slate-500"><X size={16} /></button>
               </div>
               <div className="space-y-2">
-                {isAdmin && (
+                {canSeeMainBranch && (
                   <button
                     onClick={() => { setActiveBranch('Main Branch'); setMobileBranchOpen(false); }}
                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all ${activeBranch === 'Main Branch' ? 'bg-primary text-white' : 'bg-slate-50 text-slate-700'}`}

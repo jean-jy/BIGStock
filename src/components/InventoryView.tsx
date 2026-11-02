@@ -597,6 +597,8 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
   const isAdmin = user?.role === 'Admin';
   // Managers can view stock and move it in/out; catalog editing stays Admin-only
   const canEditCatalog = isAdmin;
+  // Main Branch is a consolidated view with no stock of its own — non-admins move stock per branch
+  const canMoveStock = isAdmin || (activeBranch !== 'Main Branch' && activeBranch !== 'All Branches');
   const tdCls = isAdmin ? 'px-4 py-2' : 'px-6 py-5';
   const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE);
   const paginatedItems = isAdmin ? filteredItems : filteredItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
@@ -843,12 +845,14 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
               <StatusBadge status={item.status} />
             </div>
             <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
+              {canMoveStock && <>
               <button onClick={() => openStockInModal(item)} className="flex items-center gap-1 px-3 py-1.5 bg-green-50 text-green-600 text-xs font-bold rounded-lg border border-green-100 active:scale-95">
                 <Download size={13} /> Stock In
               </button>
               <button onClick={() => openStockInModal(item, 'out')} className="flex items-center gap-1 px-3 py-1.5 bg-orange-50 text-orange-600 text-xs font-bold rounded-lg border border-orange-100 active:scale-95">
                 <MinusCircle size={13} /> Stock Out
               </button>
+              </>}
               {canEditCatalog && <>
               <button onClick={() => openEditModal(item)} className="flex items-center gap-1 px-3 py-1.5 bg-primary/5 text-primary text-xs font-bold rounded-lg">
                 <Pencil size={13} /> Edit
@@ -959,6 +963,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                 </td>
                 <td className={`${tdCls} text-right`}>
                   <div className="flex items-center justify-end gap-2">
+                    {canMoveStock && <>
                     <button
                       onClick={() => openStockInModal(item)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-600 text-[11px] font-bold rounded-full border border-green-100 hover:bg-green-100 hover:text-green-700 transition-all active:scale-95"
@@ -975,6 +980,7 @@ export function InventoryView({ activeBranch, user, activeCompany = 'big-dental'
                       <MinusCircle size={13} />
                       Stock Out
                     </button>
+                    </>}
                     {canEditCatalog && <>
                     <button
                       onClick={() => toggleLowStockAlert(item)}
