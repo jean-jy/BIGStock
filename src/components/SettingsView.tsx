@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase, supabaseSecondary } from '../supabase';
-import { USER_ROLES } from '../types';
+import { USER_ROLES, normalizeAccess, guessAccess, type AccessLevel } from '../types';
 
 const SettingSection = ({ title, description, children }: { title: string, description: string, children: React.ReactNode }) => (
   <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-6">
@@ -62,7 +62,7 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
   const handleSaveProfile = async () => {
     setSavingProfile(true);
     try {
-      await supabase.from('profiles').update({ full_name: `${profileForm.fullName} [${user?.role || 'Admin'}]` }).eq('id', user?.id);
+      await supabase.from('profiles').update({ full_name: `${profileForm.fullName} [${user?.roleLabel || user?.role || 'Admin'}]` }).eq('id', user?.id);
       await supabase.auth.updateUser({ data: { full_name: profileForm.fullName } });
       alert('Profile updated successfully!');
     } catch (err: any) {
@@ -122,6 +122,18 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
     setCustomRoles(newRoles);
     localStorage.setItem('clinic_roles', JSON.stringify(newRoles));
   };
+
+  // Which access level each role name grants. Renaming a role keeps its access.
+  const DEFAULT_ACCESS: Record<string, AccessLevel> = { 'Admin': 'Admin', 'Branch Manager': 'Branch Manager', 'Staff': 'Staff' };
+  const [roleAccess, setRoleAccess] = useState<Record<string, AccessLevel>>(() => {
+    try { return { ...DEFAULT_ACCESS, ...JSON.parse(localStorage.getItem('clinic_role_access') || '{}') }; }
+    catch { return DEFAULT_ACCESS; }
+  });
+  const saveRoleAccess = (next: Record<string, AccessLevel>) => {
+    setRoleAccess(next);
+    localStorage.setItem('clinic_role_access', JSON.stringify(next));
+  };
+  const accessFor = (label: string): AccessLevel => roleAccess[label] ?? guessAccess(label);
   const [clinicInfo, setClinicInfo] = useState({ 
     name: 'BIG DENTAL CLINIC', 
     website: 'https://bigdental.com', 
@@ -138,6 +150,19 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
         supabase.from('branches').select('*').eq('company_id', activeCompany).order('name'),
         supabase.from('clinic_info').select('*').single()
       ]);
+
+      const seeded: Record<string, AccessLevel> = {};
+      (usersResult.data || []).forEach((u: any) => {
+        const m = (u.full_name || '').match(/(.*) \[(.*)\]$/);
+        if (m) seeded[m[2]] = normalizeAccess(u.role);
+      });
+      if (Object.keys(seeded).length) {
+        setRoleAccess(prev => {
+          const next = { ...prev, ...seeded };
+          localStorage.setItem('clinic_role_access', JSON.stringify(next));
+          return next;
+        });
+      }
 
       setProfileUsers((usersResult.data || []).map(u => {
         // Unpack "Smart Carry-Along" role if present: "Full Name [Custom Role]"
@@ -274,7 +299,8 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
     if (!perm) return;
     
     // Convert Role name to lowercase column name for DB (e.g. 'Branch Manager' -> 'manager')
-    const dbColumn = role.toLowerCase().includes('admin') ? 'admin' : role.toLowerCase().includes('manager') ? 'manager' : 'staff';
+    const access = accessFor(role);
+    const dbColumn = access === 'Admin' ? 'admin' : access === 'Branch Manager' ? 'manager' : 'staff';
     
     const newValue = !perm[dbColumn];
     setRolePermissions(rolePermissions.map(p =>
@@ -598,7 +624,7 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
                       <div className="flex flex-col">
                         <span className="text-xs font-extrabold text-slate-800">{role}</span>
                         <p className="text-[8px] text-slate-400 uppercase font-bold tracking-tighter">
-                          {['Admin', 'Branch Manager', 'Staff'].includes(role) ? 'System Role' : 'Custom Role'}
+                          {['Admin', 'Branch Manager', 'Staff'].includes(role) ? 'System Role' : `${accessFor(role) === 'Branch Manager' ? 'Manager' : accessFor(role)} access`}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -609,14 +635,11 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
                               const updated = customRoles.map(r => r === role ? newName : r);
                               saveRoles(updated);
                               
-                              // Persist the change to the database for ALL users with this role
-                              const baseRole = newName.toLowerCase().includes('admin') ? 'Admin' : 
-                                              (newName.toLowerCase().includes('manager') || newName.toLowerCase().includes('user') || newName.toLowerCase().includes('branch')) ? 'Branch Manager' : 
-                                              'Staff';
-                              
-                              const oldBaseRole = role.toLowerCase().includes('admin') ? 'Admin' : 
-                                                 (role.toLowerCase().includes('manager') || role.toLowerCase().includes('branch')) ? 'Branch Manager' : 
-                                                 'Staff';
+                              // Renaming keeps the role's access level
+                              const baseRole = accessFor(role);
+                              const nextAccess = { ...roleAccess, [newName]: baseRole };
+                              delete nextAccess[role];
+                              saveRoleAccess(nextAccess);
 
                               // Update local state first for instant feedback
                               setProfileUsers(profileUsers.map(u => u.role === role ? { ...u, role: newName } : u));
@@ -663,6 +686,8 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
                     onClick={() => {
                       const name = window.prompt("Enter new role name:");
                       if (name && !customRoles.includes(name)) {
+                        const asManager = window.confirm(`Should "${name}" have Branch Manager access?\n\nOK = Branch Manager (Inventory, Stock In / Out, Main Branch view)\nCancel = Staff`);
+                        saveRoleAccess({ ...roleAccess, [name]: asManager ? 'Branch Manager' : 'Staff' });
                         saveRoles([...customRoles, name]);
                       }
                     }}
@@ -690,7 +715,8 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
                         <tr key={perm.id} className="hover:bg-slate-50/50 transition-colors">
                           <td className="py-3 px-2 text-xs font-medium text-slate-700">{perm.name}</td>
                           {customRoles.map(role => {
-                            const dbCol = role.toLowerCase().includes('admin') ? 'admin' : role.toLowerCase().includes('manager') ? 'manager' : 'staff';
+                            const access = accessFor(role);
+                            const dbCol = access === 'Admin' ? 'admin' : access === 'Branch Manager' ? 'manager' : 'staff';
                             return (
                               <td key={role} className="py-3 text-center cursor-pointer group" onClick={() => togglePermission(perm.id, role)}>
                                 <CheckCircle2 size={16} className={`mx-auto transition-transform group-active:scale-90 ${perm[dbCol] ? 'text-primary' : 'text-slate-200'}`} />
@@ -969,9 +995,7 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
                 setSavingUser(true);
                 try {
                   if (editingUserId) {
-                    const baseRole = userForm.role.toLowerCase().includes('admin') ? 'Admin' : 
-                                    (userForm.role.toLowerCase().includes('manager') || userForm.role.toLowerCase().includes('user') || userForm.role.toLowerCase().includes('branch')) ? 'Branch Manager' : 
-                                    'Staff';
+                    const baseRole = accessFor(userForm.role);
 
                     const taggedName = `${userForm.name} [${userForm.role}]`;
                     let error;
@@ -1023,9 +1047,7 @@ export function SettingsView({ user, darkMode = false, onToggleDarkMode, activeC
 
                     alert('User profile updated successfully! 🎉');
                   } else {
-                    const baseRole = userForm.role.toLowerCase().includes('admin') ? 'Admin' : 
-                                    (userForm.role.toLowerCase().includes('manager') || userForm.role.toLowerCase().includes('user') || userForm.role.toLowerCase().includes('branch')) ? 'Branch Manager' : 
-                                    'Staff';
+                    const baseRole = accessFor(userForm.role);
 
                     const { data, error } = await supabaseSecondary.auth.signUp({
                       email: userForm.email,

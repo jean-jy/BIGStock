@@ -26,6 +26,17 @@ export interface InventoryItem {
 
 export const BRANCH_NAMES = ['Kepong', 'Jadehills', 'Puchong', 'Warehouse'] as const;
 export const USER_ROLES = ['Admin', 'Branch Manager', 'Staff'] as const;
+export type AccessLevel = typeof USER_ROLES[number];
+
+// profiles.role holds the access level; older rows may say 'Manager'
+export const normalizeAccess = (role?: string | null): AccessLevel =>
+  role === 'Admin' ? 'Admin' : (role === 'Branch Manager' || role === 'Manager') ? 'Branch Manager' : 'Staff';
+
+// Best guess for a role name nobody has assigned an access level to yet
+export const guessAccess = (label: string): AccessLevel => {
+  const l = label.toLowerCase();
+  return l.includes('admin') ? 'Admin' : (l.includes('manager') || l.includes('branch')) ? 'Branch Manager' : 'Staff';
+};
 
 
 export interface Company {

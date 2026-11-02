@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase } from './supabase';
+import { normalizeAccess } from './types';
 
 import type { View } from './types';
 
@@ -97,6 +98,8 @@ export default function App() {
             const match = fullName.match(/(.*) \[(.*)\]$/);
             const displayName = match ? match[1] : (profile.full_name || u.displayName);
             const displayRole = match ? match[2] : (profile.role || u.role);
+            // Access is decided by profiles.role; the bracketed name (e.g. "Coordinator") is just a label
+            const accessRole = normalizeAccess(profile.role);
 
             setUser((prev: any) => {
               if (!prev) return prev;
@@ -112,7 +115,8 @@ export default function App() {
               return {
                 ...prev,
                 displayName: displayName,
-                role: isOwner ? 'Admin' : displayRole,
+                role: isOwner ? 'Admin' : accessRole,
+                roleLabel: isOwner ? 'Admin' : displayRole,
                 assignedBranch: resolvedBranch,
                 companyId: profile.company_id || prev.companyId || 'big-dental',
                 photoURL: profile.avatar_url || prev.photoURL
@@ -427,7 +431,7 @@ export default function App() {
             <div className="text-right hidden sm:block">
               <p className="text-xs font-bold text-slate-900 leading-tight">{user.displayName}</p>
               <p className={`text-[9px] font-bold uppercase tracking-widest ${isImpersonating ? 'text-amber-600' : 'text-primary'}`}>
-                {isImpersonating ? `Viewing as ${effectiveRole}` : user.role}
+                {isImpersonating ? `Viewing as ${effectiveRole}` : (user.roleLabel || user.role)}
               </p>
             </div>
             <div className="h-9 w-9 rounded-full bg-slate-200 overflow-hidden border-2 border-slate-100 shadow-sm">
@@ -464,8 +468,8 @@ export default function App() {
               </>
             )}
             {isImpersonating && <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest mb-1 px-4">Preview branch</p>}
-            {!isRealAdmin && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 px-4">My Assigned Branch</p>}
-            {companyBranches.filter(branch => isRealAdmin || user?.assignedBranch === branch).map(branch => (
+            {!isRealAdmin && <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1 px-4">{user?.assignedBranch === 'All Branches' ? 'My Branches' : 'My Assigned Branch'}</p>}
+            {companyBranches.filter(branch => isRealAdmin || user?.assignedBranch === 'All Branches' || user?.assignedBranch === branch).map(branch => (
               <SidebarItem key={branch} icon={MapPin} label={branch} active={activeBranch === branch} onClick={() => setActiveBranch(branch)} />
             ))}
           </nav>
@@ -654,7 +658,7 @@ export default function App() {
                     {activeBranch === 'Main Branch' && <span className="ml-auto text-[10px] uppercase tracking-widest opacity-70">Active</span>}
                   </button>
                 )}
-                {companyBranches.filter(b => isRealAdmin || user?.assignedBranch === b).map(branch => (
+                {companyBranches.filter(b => isRealAdmin || user?.assignedBranch === 'All Branches' || user?.assignedBranch === b).map(branch => (
                   <button
                     key={branch}
                     onClick={() => { setActiveBranch(branch); setMobileBranchOpen(false); }}
