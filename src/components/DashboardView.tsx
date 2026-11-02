@@ -475,12 +475,12 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
         fallbackItems: log.mismatchedItems || [],
       });
 
-      alert(`Audit approved — ${updatedCount} item(s) updated for ${branchId} (${discrepancyCount} discrepanc${discrepancyCount === 1 ? 'y' : 'ies'} corrected).`);
+      alert(`Audit applied — ${updatedCount} item(s) updated for ${branchId} (${discrepancyCount} discrepanc${discrepancyCount === 1 ? 'y' : 'ies'} corrected).`);
       fetchData();
       onDataRefresh?.();
     } catch (err) {
-      console.error('Error approving audit:', err);
-      alert('Failed to approve audit. Check the browser console for the exact error.');
+      console.error('Error applying audit:', err);
+      alert('Failed to apply audit to stock. Check the browser console for the exact error.');
     } finally {
       setApprovingAuditId(null);
     }
@@ -1148,18 +1148,18 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
                     <span className="text-xs font-medium text-slate-700 flex-1">{log.auditor}</span>
                     <span className="text-xs font-bold text-primary">{log.itemsChecked} items</span>
                   </div>
-                  <div>
-                    {log.approvalStatus === 'PENDING'
-                      ? <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-bold rounded-full border border-amber-100">Pending Approval</span>
-                      : <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-bold rounded-full border border-emerald-100">Approved</span>}
-                  </div>
+                  {log.approvalStatus === 'PENDING' && (
+                    <div>
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-bold rounded-full border border-slate-200">Not applied to stock</span>
+                    </div>
+                  )}
                 </button>
                 {expandedAuditId === log.id && (
                   <div className="border-t border-slate-100 p-4 bg-slate-50/50">
                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1"><AlertCircle size={10} className="text-tertiary" /> Discrepancy Details</p>
                     {!log.mismatchedItems && (
                       <div className="px-3 py-2.5 mb-3 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-700 font-semibold">
-                        Detailed mismatch breakdown was not recorded for this audit. You can still approve to accept the submitted counts.
+                        Detailed mismatch breakdown was not recorded for this audit.
                       </div>
                     )}
                     <div className="space-y-3 mb-4">
@@ -1190,20 +1190,20 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
                     </div>
                     <div className="text-[10px] text-slate-400 mb-3">
                       {log.approvalStatus === 'APPROVED' ? (
-                        <p className="flex items-center gap-1 text-emerald-600 font-bold"><CheckCircle2 size={12} /> Approved by {log.approvedByName}</p>
+                        <p className="flex items-center gap-1 text-emerald-600 font-bold"><CheckCircle2 size={12} /> Applied to stock</p>
                       ) : (
-                        <p>Awaiting management review and system sync.</p>
+                        <p>Submitted before audits updated stock automatically — not applied yet.</p>
                       )}
                     </div>
-                    {(user?.role === 'Admin' || user?.role === 'Branch Manager') && log.approvalStatus === 'PENDING' && (
+                    {user?.role === 'Admin' && log.approvalStatus === 'PENDING' && (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleApproveAudit(log); }}
                         disabled={approvingAuditId === log.id}
-                        className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-500 text-white text-xs font-bold rounded-xl active:scale-95 disabled:opacity-70"
+                        className="w-full flex items-center justify-center gap-2 py-3 bg-slate-700 text-white text-xs font-bold rounded-xl active:scale-95 disabled:opacity-70"
                       >
                         {approvingAuditId === log.id
-                          ? <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Approving...</>
-                          : <><CheckCircle2 size={14} /> Approve & Update Stock</>
+                          ? <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Applying...</>
+                          : <><CheckCircle2 size={14} /> Apply to Stock</>
                         }
                       </button>
                     )}
@@ -1261,10 +1261,8 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-3">
                           <StatusBadge status={log.status} />
-                          {log.approvalStatus === 'PENDING' ? (
-                            <span className="px-2 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-bold rounded-full border border-amber-100 uppercase tracking-tighter">Pending Approval</span>
-                          ) : (
-                            <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-bold rounded-full border border-emerald-100 uppercase tracking-tighter">Approved</span>
+                          {log.approvalStatus === 'PENDING' && (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-bold rounded-full border border-slate-200 uppercase tracking-tighter">Not applied to stock</span>
                           )}
                           {(log.mismatchedItems || log.approvalStatus === 'PENDING') && (
                             <button className="text-slate-400 hover:text-primary transition-colors flex shrink-0">
@@ -1284,7 +1282,7 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
                             </h4>
                             {!log.mismatchedItems && (
                               <div className="px-4 py-3 mb-3 rounded-xl bg-amber-50 border border-amber-100 text-xs text-amber-700 font-semibold">
-                                Detailed mismatch breakdown was not recorded for this audit. You can still approve to accept the submitted counts.
+                                Detailed mismatch breakdown was not recorded for this audit.
                               </div>
                             )}
                             <div className="space-y-3">
@@ -1329,21 +1327,21 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
                                   {log.approvalStatus === 'APPROVED' ? (
                                     <p className="flex items-center gap-1 text-emerald-600 font-bold">
                                       <CheckCircle2 size={12} />
-                                      Approved by {log.approvedByName} on {new Date(log.approvedAt!).toLocaleDateString('en-MY')}
+                                      Applied to stock on {new Date(log.approvedAt!).toLocaleDateString('en-MY')}
                                     </p>
                                   ) : (
-                                    <p>Awaiting management review and system sync.</p>
+                                    <p>Submitted before audits updated stock automatically — not applied yet.</p>
                                   )}
                                 </div>
-                                {(user?.role === 'Admin' || user?.role === 'Branch Manager') && log.approvalStatus === 'PENDING' && (
+                                {user?.role === 'Admin' && log.approvalStatus === 'PENDING' && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleApproveAudit(log); }}
                                     disabled={approvingAuditId === log.id}
-                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-md hover:bg-emerald-600 transition-all active:scale-95 disabled:opacity-70"
+                                    className="flex items-center gap-2 px-4 py-2 bg-slate-700 text-white text-xs font-bold rounded-lg shadow-md hover:bg-slate-800 transition-all active:scale-95 disabled:opacity-70"
                                   >
                                     {approvingAuditId === log.id
-                                      ? <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Approving...</>
-                                      : <><CheckCircle2 size={14} /> Approve & Update Stock</>
+                                      ? <><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Applying...</>
+                                      : <><CheckCircle2 size={14} /> Apply to Stock</>
                                     }
                                   </button>
                                 )}
@@ -2414,7 +2412,7 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
             </div>
             <div className="px-6 py-3 border-t border-slate-100 text-xs text-slate-400 flex justify-between items-center">
               <span>{auditDetailItems.length} items recorded</span>
-              <span className="text-emerald-600 font-bold">✓ Approved by {auditDetailLog.approvedByName}</span>
+              <span className="text-emerald-600 font-bold">✓ Audited by {auditDetailLog.approvedByName}</span>
             </div>
           </div>
         </div>

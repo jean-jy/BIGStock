@@ -603,7 +603,7 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                   <div>
                     <button onClick={() => setSelectedHistoryLog(null)} className="text-xs text-primary font-bold hover:underline mb-1 block">← Back to list</button>
                     <h3 className="text-sm font-extrabold text-slate-900">{selectedHistoryLog.branch} · {selectedHistoryLog.date}</h3>
-                    <p className="text-xs text-slate-500">Audited by {selectedHistoryLog.auditor} · Approved by {selectedHistoryLog.approved_by_name}</p>
+                    <p className="text-xs text-slate-500">Audited by {selectedHistoryLog.auditor}</p>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${selectedHistoryLog.status === 'ZERO DISCREPANCY' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
                     {selectedHistoryLog.status}
@@ -664,7 +664,7 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                     <option>All Branches</option>
                     {['Kepong', 'Jadehills', 'Puchong'].map(b => <option key={b} value={`${b} Branch`}>{b}</option>)}
                   </select>
-                  <span className="text-xs text-slate-400">{historyLogs.filter(l => historyBranchFilter === 'All Branches' || l.branch === historyBranchFilter).length} approved audits</span>
+                  <span className="text-xs text-slate-400">{historyLogs.filter(l => historyBranchFilter === 'All Branches' || l.branch === historyBranchFilter).length} audits</span>
                 </div>
                 {historyLoading ? (
                   <div className="p-12 text-center text-slate-400 text-sm italic">Loading history...</div>
@@ -677,12 +677,11 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                         <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Auditor</th>
                         <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-center">Items</th>
                         <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Result</th>
-                        <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Approved By</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                       {historyLogs.filter(l => historyBranchFilter === 'All Branches' || l.branch === historyBranchFilter).length === 0 && (
-                        <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-400 text-sm">No approved audits found.</td></tr>
+                        <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400 text-sm">No audits found.</td></tr>
                       )}
                       {historyLogs
                         .filter(l => historyBranchFilter === 'All Branches' || l.branch === historyBranchFilter)
@@ -701,7 +700,6 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                                 {log.status}
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-sm text-slate-500">{log.approved_by_name}</td>
                           </tr>
                         ))}
                     </tbody>

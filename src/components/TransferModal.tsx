@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, CheckCircle2, ArrowRightLeft, Trash2 } from 'lucide-react';
+import { Plus, CheckCircle2, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
-import { BRANCH_NAMES, companySkipsApproval } from '../types';
+import { BRANCH_NAMES } from '../types';
 import type { InventoryItem } from '../types';
 
 export function TransferModal({ isOpen, onClose, user, companyBranches, activeCompany = 'big-dental' }: { isOpen: boolean, onClose: () => void, user?: any, companyBranches?: string[], activeCompany?: string }) {
@@ -15,10 +15,6 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
   const [success, setSuccess] = useState(false);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [fromStock, setFromStock] = useState<Record<string, number>>({});
-
-  const isAdmin = user?.role === 'Admin';
-  // Admins always transfer instantly; some companies skip approval for everyone
-  const instant = isAdmin || companySkipsApproval(activeCompany);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -56,52 +52,41 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
     try {
       const { data: { session } } = await supabase.auth.getSession();
 
-      // Each line is recorded as its own transfer so approvals and history stay per item
+      // Each line is recorded as its own transfer so history stays per item
       for (const line of lines) {
         const selectedItem = line.itemId;
         const qty = Number(line.qty);
         const item = inventory.find(i => i.id === selectedItem);
         if (!item) continue;
 
-        if (instant) {
-          // Immediate transfer
-          await supabase.from('transfers').insert({
-            from_branch_id: fromBranch, to_branch_id: toBranch,
-            item_id: selectedItem, item_name: item.name,
-            quantity: qty, status: 'COMPLETED', notes,
-            requested_by: session?.user?.id || null,
-            approved_by: session?.user?.id || null,
-          });
+        await supabase.from('transfers').insert({
+          from_branch_id: fromBranch, to_branch_id: toBranch,
+          item_id: selectedItem, item_name: item.name,
+          quantity: qty, status: 'COMPLETED', notes,
+          requested_by: session?.user?.id || null,
+          approved_by: session?.user?.id || null,
+        });
 
-          const [fromRow, toRow] = await Promise.all([
-            supabase.from('branch_inventory').select('id, quantity').eq('branch_id', fromBranch).eq('item_id', selectedItem).maybeSingle(),
-            supabase.from('branch_inventory').select('id, quantity').eq('branch_id', toBranch).eq('item_id', selectedItem).maybeSingle(),
-          ]);
-          if (fromRow.data) await supabase.from('branch_inventory').update({ quantity: Math.max(0, fromRow.data.quantity - qty) }).eq('id', fromRow.data.id);
-          if (toRow.data) await supabase.from('branch_inventory').update({ quantity: toRow.data.quantity + qty }).eq('id', toRow.data.id);
-          else await supabase.from('branch_inventory').insert({ branch_id: toBranch, item_id: selectedItem, quantity: qty });
+        const [fromRow, toRow] = await Promise.all([
+          supabase.from('branch_inventory').select('id, quantity').eq('branch_id', fromBranch).eq('item_id', selectedItem).maybeSingle(),
+          supabase.from('branch_inventory').select('id, quantity').eq('branch_id', toBranch).eq('item_id', selectedItem).maybeSingle(),
+        ]);
+        if (fromRow.data) await supabase.from('branch_inventory').update({ quantity: Math.max(0, fromRow.data.quantity - qty) }).eq('id', fromRow.data.id);
+        if (toRow.data) await supabase.from('branch_inventory').update({ quantity: toRow.data.quantity + qty }).eq('id', toRow.data.id);
+        else await supabase.from('branch_inventory').insert({ branch_id: toBranch, item_id: selectedItem, quantity: qty });
 
-          await supabase.from('inventory_transactions').insert({
-            type: 'TRANSFER', item_id: selectedItem, item_name: item.name,
-            quantity: qty, unit: item.unit,
-            from_location: fromBranch, to_location: toBranch,
-            performed_by: session?.user?.id || null,
-          });
-        } else {
-          // Staff/Manager: submit as PENDING for admin approval
-          await supabase.from('transfers').insert({
-            from_branch_id: fromBranch, to_branch_id: toBranch,
-            item_id: selectedItem, item_name: item.name,
-            quantity: qty, status: 'PENDING', notes,
-            requested_by: session?.user?.id || null,
-          });
-        }
+        await supabase.from('inventory_transactions').insert({
+          type: 'TRANSFER', item_id: selectedItem, item_name: item.name,
+          quantity: qty, unit: item.unit,
+          from_location: fromBranch, to_location: toBranch,
+          performed_by: session?.user?.id || null,
+        });
       }
 
       setSuccess(true);
       setTimeout(() => { setSuccess(false); setLines([{ itemId: '', qty: 1 }]); setNotes(''); onClose(); }, 2500);
     } catch (error) {
-      console.error('Error requesting transfer:', error);
+      console.error('Error transferring stock:', error);
     } finally {
       setLoading(false);
     }
@@ -120,10 +105,10 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
           <div className="flex justify-between items-center mb-6">
             <div>
               <h2 className="text-2xl font-manrope font-extrabold text-slate-900 tracking-tight">
-                {instant ? 'Transfer Stock' : 'Request Stock Transfer'}
+                Transfer Stock
               </h2>
               <p className="text-slate-500 text-sm">
-                {instant ? 'Instantly move inventory between branches.' : 'Submit a request — admin will approve.'}
+                Instantly move inventory between branches.
               </p>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-slate-50 rounded-full transition-colors">
@@ -133,14 +118,14 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
 
           {success ? (
             <div className="py-12 text-center">
-              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${instant ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-green-50 text-green-600`}>
                 <CheckCircle2 size={32} />
               </div>
               <h3 className="text-lg font-bold text-slate-900">
-                {instant ? 'Transfer Completed' : 'Request Submitted'}
+                Transfer Completed
               </h3>
               <p className="text-slate-500 text-sm mt-2">
-                {instant ? 'Inventory balances have been updated.' : 'An admin will review and approve your request.'}
+                Inventory balances have been updated.
               </p>
             </div>
           ) : (
@@ -209,13 +194,6 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
                   className="w-full bg-slate-50 border border-slate-100 text-sm p-3 rounded-xl focus:ring-2 focus:ring-primary/10" />
               </div>
 
-              {!instant && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-xl">
-                  <ArrowRightLeft size={14} className="text-blue-500 shrink-0" />
-                  <p className="text-[11px] text-blue-600 font-medium">Your request will be reviewed by an admin before stock is moved.</p>
-                </div>
-              )}
-
               <div className="pt-2 flex gap-3">
                 <button type="button" onClick={onClose}
                   className="flex-1 py-3.5 border border-slate-100 text-slate-600 rounded-2xl font-bold text-sm hover:bg-slate-50 transition-all">
@@ -224,7 +202,7 @@ export function TransferModal({ isOpen, onClose, user, companyBranches, activeCo
                 <button type="submit"
                   disabled={loading || !linesValid || fromBranch === toBranch}
                   className="flex-1 py-3.5 bg-primary text-white rounded-2xl font-bold text-sm shadow-lg shadow-primary/20 hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50">
-                  {loading ? 'Submitting...' : instant ? (lines.length > 1 ? `Transfer ${lines.length} Items` : 'Transfer Now') : (lines.length > 1 ? `Submit ${lines.length} Requests` : 'Submit Request')}
+                  {loading ? 'Transferring...' : lines.length > 1 ? `Transfer ${lines.length} Items` : 'Transfer Now'}
                 </button>
               </div>
               {fromBranch === toBranch && <p className="text-[10px] text-red-500 font-bold text-center uppercase tracking-tight">Source and destination branches must be different</p>}

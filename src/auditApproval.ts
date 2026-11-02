@@ -3,9 +3,9 @@ import { supabase } from './supabase';
 type AuditedItem = { id: string; name: string; expected: number; actual: number; isMismatch: boolean };
 
 /**
- * Applies an audit's counted quantities to stock and marks the audit APPROVED.
- * Used by the admin "Approve & Update Stock" action, and directly on submit for
- * companies that skip audit approval.
+ * Applies an audit's counted quantities to stock and marks the audit APPROVED
+ * (i.e. applied). Runs on every audit submit; the dashboard also uses it to apply
+ * older audits that were submitted before audits applied automatically.
  */
 export async function applyAuditToStock({
   auditLogId,
@@ -75,7 +75,7 @@ export async function applyAuditToStock({
         unit: 'Units',
         from_location: 'Stock Audit',
         to_location: branchId,
-        remarks: `Audit approval by ${approverName}`,
+        remarks: `Stock audit by ${approverName}`,
         performed_by: performedBy || null
       }))
     );

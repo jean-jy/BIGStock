@@ -143,18 +143,6 @@ export default function App() {
         if (inv) items.push({ id: `stock-${row.item_id}`, type: 'stock', message: `${inv.name} critically low`, sub: `Only ${row.quantity} units remaining` });
       }
 
-      // Pending transfers (admin only)
-      if (user.role === 'Admin') {
-        const { data: pending } = await supabase
-          .from('stock_transfers')
-          .select('id, item_id, quantity, inventory(name)')
-          .eq('status', 'PENDING');
-        for (const t of pending || []) {
-          const inv = t.inventory as any;
-          items.push({ id: `transfer-${t.id}`, type: 'transfer', message: `Transfer request awaiting`, sub: `${inv?.name || 'Item'} × ${t.quantity}` });
-        }
-      }
-
       // Expiring items (within 30 days)
       const today = new Date();
       const in30 = new Date(today.getTime() + 30 * 86400000).toISOString().slice(0, 10);
@@ -484,7 +472,7 @@ export default function App() {
             {isAdmin && (
               <button onClick={() => setIsTransferModalOpen(true)} className="w-full py-3 px-4 bg-primary-container text-white rounded-md font-manrope font-bold text-sm tracking-tight shadow-sm hover:shadow-md transition-all active:scale-[0.98] flex items-center justify-center gap-2">
                 <ArrowRightLeft size={16} />
-                Request Transfer
+                Transfer Stock
               </button>
             )}
             <div className="pt-4 border-t border-slate-200">

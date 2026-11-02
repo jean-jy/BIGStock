@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ArrowRightLeft, RefreshCw, Download, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../supabase';
-import { PendingTransfersList } from './PendingTransfersList';
+import { TransferHistoryList } from './TransferHistoryList';
 
 /** Normalize a category string to Title Case so that "CLEANING", "cleaning", "Cleaning" all become "Cleaning" */
 function normalizeCategory(cat: string): string {
@@ -269,11 +269,10 @@ export function MultiBranchView({ onOpenTransfer, user, refreshKey, activeCompan
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Qty</th>
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Status</th>
                   <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Date</th>
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                <PendingTransfersList user={user} />
+                <TransferHistoryList companyBranches={branchNames} />
               </tbody>
             </table>
           </div>
