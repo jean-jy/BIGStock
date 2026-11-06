@@ -25,6 +25,7 @@ interface AuditComparisonItem {
   lastCount: number;
   currentCount: number;
   unit: string;
+  notCounted: boolean; // in the previous audit but skipped in the latest one
 }
 
 interface Props {
@@ -199,7 +200,8 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                 sku: inv.sku || 'N/A',
                 currentCount: latestCount ?? 0,   // Latest Count = most recent audit
                 lastCount: previousCount ?? latestCount ?? 0, // Last Count = previous audit
-                unit: inv.unit || 'Units'
+                unit: inv.unit || 'Units',
+                notCounted: latestCount === null
               };
             }).filter((inv: AuditComparisonItem) => latestAuditMap.has(inv.id) || previousAuditMap.has(inv.id));
             setAuditData(items);
@@ -295,17 +297,18 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
   };
 
 
-  // Audit calculations
-  const totalDecrease = auditData.reduce((acc, item) => {
+  // Audit calculations (items skipped in the latest audit have no variance to count)
+  const countedAuditData = auditData.filter(item => !item.notCounted);
+  const totalDecrease = countedAuditData.reduce((acc, item) => {
     const diff = item.currentCount - item.lastCount;
     return diff < 0 ? acc + Math.abs(diff) : acc;
   }, 0);
-  const totalIncrease = auditData.reduce((acc, item) => {
+  const totalIncrease = countedAuditData.reduce((acc, item) => {
     const diff = item.currentCount - item.lastCount;
     return diff > 0 ? acc + diff : acc;
   }, 0);
-  const totalCurrent = auditData.reduce((s, i) => s + i.currentCount, 0);
-  const accuracyRate = auditData.length > 0 && totalCurrent > 0 
+  const totalCurrent = countedAuditData.reduce((s, i) => s + i.currentCount, 0);
+  const accuracyRate = countedAuditData.length > 0 && totalCurrent > 0
     ? ((1 - (totalIncrease + totalDecrease) / totalCurrent) * 100).toFixed(1) 
     : '100.0';
 
@@ -387,6 +390,7 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                 onClick={() => {
                   const headers = ['Item Name', 'SKU', 'Last Count', 'Current Count', 'Variance', 'Status'];
                   const rows = auditData.map(item => {
+                    if (item.notCounted) return [item.name, item.sku, item.lastCount, '', '', 'NOT COUNTED'];
                     const diff = item.currentCount - item.lastCount;
                     return [item.name, item.sku, item.lastCount, item.currentCount, diff > 0 ? `+${diff}` : diff, diff > 0 ? 'EXTRA' : diff < 0 ? 'MISSING' : 'MATCHED'];
                   });
@@ -473,18 +477,30 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                       </div>
                       <div className="bg-slate-50 rounded-lg p-2.5 text-center">
                         <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Latest</p>
-                        <p className="text-sm font-bold text-slate-900">{item.currentCount}<span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></p>
+                        {item.notCounted ? (
+                          <p className="text-sm font-bold text-slate-300">—</p>
+                        ) : (
+                          <p className="text-sm font-bold text-slate-900">{item.currentCount}<span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></p>
+                        )}
                       </div>
                       <div className="bg-slate-50 rounded-lg p-2.5 text-center">
                         <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Variance</p>
-                        <p className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-tertiary' : 'text-slate-400'}`}>
-                          {diff > 0 ? `+${diff}` : diff}<span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
-                        </p>
+                        {item.notCounted ? (
+                          <p className="text-sm font-extrabold text-slate-300">—</p>
+                        ) : (
+                          <p className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-tertiary' : 'text-slate-400'}`}>
+                            {diff > 0 ? `+${diff}` : diff}<span className="text-[9px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
+                          </p>
+                        )}
                       </div>
                     </div>
-                    <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold ${diff > 0 ? 'bg-blue-50 text-blue-700' : diff < 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-500'}`}>
-                      {diff > 0 ? 'EXTRA' : diff < 0 ? 'MISSING' : 'MATCHED'}
-                    </span>
+                    {item.notCounted ? (
+                      <span className="inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-400">NOT COUNTED</span>
+                    ) : (
+                      <span className={`inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold ${diff > 0 ? 'bg-blue-50 text-blue-700' : diff < 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-500'}`}>
+                        {diff > 0 ? 'EXTRA' : diff < 0 ? 'MISSING' : 'MATCHED'}
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -514,20 +530,37 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                           <p className="text-[10px] text-slate-400 uppercase tracking-tight font-medium">SKU: {item.sku}</p>
                         </td>
                         <td className="px-6 py-5 text-center text-sm font-medium text-slate-500 whitespace-nowrap">{item.lastCount}<span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></td>
-                        <td className="px-6 py-5 text-center text-sm font-bold text-slate-900 whitespace-nowrap">{item.currentCount}<span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></td>
-                        <td className="px-6 py-5 text-center">
-                          <span className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-tertiary' : 'text-slate-400'}`}>
-                            {diff > 0 ? `+${diff}` : diff}
-                          </span>
-                          <span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
-                        </td>
-                        <td className="px-6 py-5 text-right">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                            diff > 0 ? 'bg-blue-50 text-blue-700' : diff < 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-500'
-                          }`}>
-                            {diff > 0 ? 'EXTRA' : diff < 0 ? 'MISSING' : 'MATCHED'}
-                          </span>
-                        </td>
+                        {item.notCounted ? (
+                          <>
+                            <td className="px-6 py-5 text-center text-sm font-bold text-slate-300">—</td>
+                            <td className="px-6 py-5 text-center text-sm font-extrabold text-slate-300">—</td>
+                            <td className="px-6 py-5 text-right">
+                              <span
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-400"
+                                title="Skipped in the latest audit; stock unchanged"
+                              >
+                                NOT COUNTED
+                              </span>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-6 py-5 text-center text-sm font-bold text-slate-900 whitespace-nowrap">{item.currentCount}<span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span></td>
+                            <td className="px-6 py-5 text-center">
+                              <span className={`text-sm font-extrabold ${diff > 0 ? 'text-blue-600' : diff < 0 ? 'text-tertiary' : 'text-slate-400'}`}>
+                                {diff > 0 ? `+${diff}` : diff}
+                              </span>
+                              <span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
+                            </td>
+                            <td className="px-6 py-5 text-right">
+                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                                diff > 0 ? 'bg-blue-50 text-blue-700' : diff < 0 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-500'
+                              }`}>
+                                {diff > 0 ? 'EXTRA' : diff < 0 ? 'MISSING' : 'MATCHED'}
+                              </span>
+                            </td>
+                          </>
+                        )}
                       </tr>
                     );
                   })}
