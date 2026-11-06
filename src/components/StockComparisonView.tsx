@@ -15,6 +15,7 @@ interface UsageData {
   rawDate: string;
   remarks: string;
   branch: string;
+  source: 'stock-out' | 'audit';
 }
 
 interface AuditComparisonItem {
@@ -67,9 +68,7 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
           const startOfMonth = new Date(selectedYear, selectedMonth, 1).toISOString();
           const endOfMonth = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59).toISOString();
 
-          let query = supabase
-            .from('inventory_transactions')
-            .select(`
+          const selectFields = `
             id,
             created_at,
             quantity,
@@ -84,35 +83,62 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
               unit,
               price
             )
-            `)
+            `;
+
+          // Stock Out records: the branch is the from_location
+          let usageQuery = supabase
+            .from('inventory_transactions')
+            .select(selectFields)
             .eq('type', 'USAGE')
             .gte('created_at', startOfMonth)
             .lte('created_at', endOfMonth);
 
+          // Audit decreases (stock counted lower than expected): the branch is the to_location
+          let auditQuery = supabase
+            .from('inventory_transactions')
+            .select(selectFields)
+            .eq('type', 'ADJUSTMENT')
+            .eq('from_location', 'Stock Audit')
+            .lt('quantity', 0)
+            .gte('created_at', startOfMonth)
+            .lte('created_at', endOfMonth);
+
           if (selectedBranch !== 'All Branches') {
-            query = query.eq('from_location', selectedBranch);
+            usageQuery = usageQuery.eq('from_location', selectedBranch);
+            auditQuery = auditQuery.eq('to_location', selectedBranch);
           } else if (companyBranches.length > 0) {
-            query = query.in('from_location', companyBranches);
+            usageQuery = usageQuery.in('from_location', companyBranches);
+            auditQuery = auditQuery.in('to_location', companyBranches);
           }
 
-          const { data, error } = await query;
-          if (error) throw error;
+          const [usageResult, auditResult] = await Promise.all([usageQuery, auditQuery]);
+          if (usageResult.error) throw usageResult.error;
+          if (auditResult.error) throw auditResult.error;
 
-          const formattedUsage: UsageData[] = data.map((tx: any) => {
+          const toUsage = (tx: any, source: 'stock-out' | 'audit'): UsageData => {
             const item = tx.inventory;
+            const quantity = Math.abs(Number(tx.quantity));
             return {
               id: tx.id || Math.random().toString(),
               name: item?.name || 'Unknown Item',
               sku: item?.sku || 'N/A',
-              quantity: tx.quantity,
+              quantity,
               unit: item?.unit || 'Units',
-              usageValue: tx.quantity * (item?.price || 0),
+              usageValue: quantity * (item?.price || 0),
               date: tx.created_at ? new Date(tx.created_at).toLocaleDateString('en-MY', { day: 'numeric', month: 'short' }) : '---',
               rawDate: tx.created_at || '',
-              remarks: tx.remarks || (tx.to_location?.startsWith('Ref:') ? tx.to_location.replace('Ref: ', '') : 'No remarks'),
-              branch: tx.from_location
+              remarks: source === 'audit'
+                ? (tx.remarks || 'Stock audit')
+                : tx.remarks || (tx.to_location?.startsWith('Ref:') ? tx.to_location.replace('Ref: ', '') : 'No remarks'),
+              branch: source === 'audit' ? tx.to_location : tx.from_location,
+              source
             };
-          });
+          };
+
+          const formattedUsage: UsageData[] = [
+            ...(usageResult.data || []).map((tx: any) => toUsage(tx, 'stock-out')),
+            ...(auditResult.data || []).map((tx: any) => toUsage(tx, 'audit')),
+          ];
 
           setUsageData(formattedUsage.sort((a, b) => new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime()));
         } catch (err) {
@@ -226,6 +252,7 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
   };
 
   const handleVoidUsage = async (usage: UsageData) => {
+    if (usage.source !== 'stock-out') return;
     if (!window.confirm(`Are you sure you want to VOID this usage record for ${usage.name}? This will add ${usage.quantity} units back to stock.`)) return;
 
     setLoading(true);
@@ -522,7 +549,10 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                     <p className="text-sm font-bold text-slate-900 flex-1 pr-2">{item.name}</p>
                     <p className="text-xs font-bold text-slate-400 shrink-0">{item.date}</p>
                   </div>
-                  <p className="text-[10px] font-bold text-primary uppercase mb-2">{item.branch}</p>
+                  <p className="text-[10px] font-bold text-primary uppercase mb-2">
+                    {item.branch}
+                    {item.source === 'audit' && <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">Audit</span>}
+                  </p>
                   {item.remarks && item.remarks !== 'No remarks' && (
                     <p className="text-xs text-slate-500 italic mb-2 truncate">{item.remarks}</p>
                   )}
@@ -533,9 +563,11 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-bold text-slate-800">RM {item.usageValue.toFixed(2)}</span>
-                      <button onClick={() => handleVoidUsage(item)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all">
-                        <Trash2 size={14} />
-                      </button>
+                      {item.source === 'stock-out' && (
+                        <button onClick={() => handleVoidUsage(item)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -561,7 +593,10 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                       </td>
                       <td className="px-6 py-5">
                         <p className="text-sm font-bold text-slate-900">{item.name}</p>
-                        <p className="text-[9px] text-primary uppercase font-bold tracking-tighter">{item.branch}</p>
+                        <p className="text-[9px] text-primary uppercase font-bold tracking-tighter">
+                          {item.branch}
+                          {item.source === 'audit' && <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 tracking-normal">Audit</span>}
+                        </p>
                       </td>
                       <td className="px-6 py-5">
                         <p className="text-xs text-slate-500 italic max-w-[200px] truncate" title={item.remarks}>{item.remarks}</p>
@@ -576,13 +611,17 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                             <span className="text-sm font-bold text-slate-900">RM {item.usageValue.toFixed(2)}</span>
                             <p className="text-[9px] text-slate-400 font-medium">Recorded Value</p>
                           </div>
-                          <button
-                            onClick={() => handleVoidUsage(item)}
-                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all"
-                            title="Void this usage (Adds stock back)"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {item.source === 'stock-out' ? (
+                            <button
+                              onClick={() => handleVoidUsage(item)}
+                              className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all"
+                              title="Void this usage (Adds stock back)"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          ) : (
+                            <span className="w-[26px]" />
+                          )}
                         </div>
                       </td>
                     </tr>
