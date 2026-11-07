@@ -247,9 +247,11 @@ export default function App() {
     ? { ...user, role: effectiveRole, assignedBranch: activeBranch }
     : user;
 
+  // Big Dental calls its Branch Manager access level "Coordinator"
+  const managerLabel = effectiveCompanyId === 'big-dental' ? 'Coordinator' : 'Manager';
   const VIEW_AS_ROLES = [
     { role: 'Admin', label: 'Admin', blurb: 'Your full view — every company and branch, all settings.' },
-    { role: 'Branch Manager', label: 'Manager', blurb: 'Own branch only. Dashboard, Inventory with Stock In / Out, audits and transfers.' },
+    { role: 'Branch Manager', label: managerLabel, blurb:'Own branch only. Dashboard, Inventory with Stock In / Out, audits and transfers.' },
     { role: 'Staff', label: 'Staff', blurb: 'Own branch only. Dashboard, Log Usage, audits and transfer requests — no Inventory tab.' },
   ] as const;
   const viewAsInfo = VIEW_AS_ROLES.find(r => r.role === effectiveRole) || VIEW_AS_ROLES[0];
@@ -705,7 +707,7 @@ export default function App() {
                           className={`flex-1 flex items-center justify-center gap-1 px-2 py-2.5 rounded-xl text-xs font-bold transition-all ${effectiveRole === role ? 'bg-amber-100 text-amber-700 border border-amber-300' : 'bg-slate-50 text-slate-600'}`}
                         >
                           <Eye size={13} />
-                          {role === 'Branch Manager' ? 'Manager' : role}
+                          {role === 'Branch Manager' ? managerLabel : role}
                         </button>
                       ))}
                     </div>
