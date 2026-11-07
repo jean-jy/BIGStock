@@ -230,6 +230,8 @@ export default function App() {
   const canUseInventory = isAdmin || effectiveRole === 'Branch Manager';
   // Managers can also open the consolidated Main Branch (HQ) view
   const canSeeMainBranch = canUseInventory;
+  // ...and the Multi-Branch stock overview
+  const canSeeMultiBranch = canUseInventory;
   const isImpersonating = isRealAdmin && effectiveRole !== 'Admin';
   const moreViewActive = ['settings', 'financials', 'audit-checklist'].includes(currentView);
 
@@ -251,7 +253,7 @@ export default function App() {
   const managerLabel = effectiveCompanyId === 'big-dental' ? 'Coordinator' : 'Manager';
   const VIEW_AS_ROLES = [
     { role: 'Admin', label: 'Admin', blurb: 'Your full view — every company and branch, all settings.' },
-    { role: 'Branch Manager', label: managerLabel, blurb:'Own branch only. Dashboard, Inventory with Stock In / Out, audits and transfers.' },
+    { role: 'Branch Manager', label: managerLabel, blurb: 'Own branch plus Main Branch and Multi-Branch overviews. Dashboard, Inventory with Stock In / Out, audits and transfers.' },
     { role: 'Staff', label: 'Staff', blurb: 'Own branch only. Dashboard, Log Usage, audits and transfer requests — no Inventory tab.' },
   ] as const;
   const viewAsInfo = VIEW_AS_ROLES.find(r => r.role === effectiveRole) || VIEW_AS_ROLES[0];
@@ -343,7 +345,7 @@ export default function App() {
           {/* Desktop nav */}
           <nav className="hidden md:flex gap-6 items-center">
             <button onClick={() => setCurrentView('dashboard')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'dashboard' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Dashboard</button>
-            {isAdmin && <button onClick={() => setCurrentView('multi-branch')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'multi-branch' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Multi-Branch</button>}
+            {canSeeMultiBranch && <button onClick={() => setCurrentView('multi-branch')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'multi-branch' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Multi-Branch</button>}
             <button onClick={() => setCurrentView('stock-comparison')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'stock-comparison' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Comparison</button>
             {canUseInventory && <button onClick={() => setCurrentView('inventory')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'inventory' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Inventory</button>}
             {isAdmin && <button onClick={() => setCurrentView('financials')} className={`font-manrope font-bold text-sm tracking-tight pb-1 transition-all ${currentView === 'financials' ? 'text-primary border-b-2 border-primary-container' : 'text-slate-500 hover:text-primary'}`}>Financials</button>}
@@ -583,7 +585,7 @@ export default function App() {
             <span className="text-[9px] font-bold uppercase tracking-wider">Home</span>
           </button>
 
-          {isAdmin && (
+          {canSeeMultiBranch && (
             <button
               onClick={() => setCurrentView('multi-branch')}
               className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl min-w-[52px] transition-all ${currentView === 'multi-branch' ? 'text-primary' : 'text-slate-400'}`}
