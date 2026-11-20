@@ -223,13 +223,13 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
             .update({ quantity: Math.max(0, biRow.quantity - usageForm.quantity) })
             .eq('id', biRow.id);
         } else {
-          // If for some reason it's not in the branch list, we assume it started with what was in the master list
+          // No row means this branch had none of the item; usage can't take it below 0
           await supabase
             .from('branch_inventory')
-            .insert({ 
-              branch_id: activeBranch, 
-              item_id: item.id, 
-              quantity: Math.max(0, (item as any).branchStock?.[activeBranch] || 0) - usageForm.quantity 
+            .insert({
+              branch_id: activeBranch,
+              item_id: item.id,
+              quantity: 0
             });
         }
 
@@ -2236,7 +2236,7 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
                   >
                     <option value="" disabled>Select an item...</option>
                     {items.map(item => (
-                      <option key={item.id} value={item.id}>{item.name} ({item.total} {item.unit} available)</option>
+                      <option key={item.id} value={item.id}>{item.name} ({activeBranch === 'Main Branch' ? item.total : (branchInventory[item.id]?.qty ?? 0)} {item.unit} available)</option>
                     ))}
                   </select>
                 </div>
