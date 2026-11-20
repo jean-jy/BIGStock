@@ -6,7 +6,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Bell, HelpCircle, MapPin, Sparkles,
-  ArrowRightLeft, LogOut,
+  ArrowRightLeft, LogOut, Download,
   Home, Package, BarChart3, GitBranch,
   MoreHorizontal, ChevronDown, X,
   Settings, DollarSign, ClipboardCheck,
@@ -28,6 +28,7 @@ import { InventoryView } from './components/InventoryView';
 import { SettingsView } from './components/SettingsView';
 import { AuditChecklist } from './components/AuditChecklist';
 import { TransferModal } from './components/TransferModal';
+import { StockInModal } from './components/StockInModal';
 import { FinancialsView } from './components/FinancialsView';
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
   const [viewAsOpen, setViewAsOpen] = useState(false);
   const viewAsRef = useRef<HTMLDivElement>(null);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const initialized = useRef(false);
@@ -246,6 +248,9 @@ export default function App() {
   const companyName = activeCompany?.name || 'Big Dental Clinic';
   const companyLogo = activeCompany?.logo_url || null;
   const companyBranches = allBranchesData.filter(b => b.company_id === effectiveCompanyId).map(b => b.id);
+  // Branches this user can stock into: their own, or all for admins; a Staff preview stays on the branch in view
+  const myBranches = companyBranches.filter(b => isRealAdmin || user?.assignedBranch === 'All Branches' || user?.assignedBranch === b);
+  const stockInBranches = isImpersonating && effectiveRole === 'Staff' ? myBranches.filter(b => b === activeBranch) : myBranches;
 
   // The user object handed to the views reflects the previewed role. For a non-admin
   // preview we also scope the impersonated user to the branch currently in view.
@@ -483,6 +488,10 @@ export default function App() {
           </nav>
 
           <div className="mt-auto space-y-4">
+            <button onClick={() => setIsStockInModalOpen(true)} className="w-full py-3 px-4 bg-sky-600 text-white rounded-md font-manrope font-bold text-sm tracking-tight shadow-sm hover:shadow-md transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+              <Download size={16} />
+              Stock In
+            </button>
             {canTransferStock && (
               <button onClick={() => setIsTransferModalOpen(true)} className="w-full py-3 px-4 bg-primary-container text-white rounded-md font-manrope font-bold text-sm tracking-tight shadow-sm hover:shadow-md transition-all active:scale-[0.98] flex items-center justify-center gap-2">
                 <ArrowRightLeft size={16} />
@@ -502,7 +511,7 @@ export default function App() {
         <main className="flex-1 lg:ml-64 p-4 md:p-6 lg:p-8 pb-24 lg:pb-8">
           <AnimatePresence mode="wait">
             {currentView === 'dashboard' ? (
-              <DashboardView key={`dashboard-${effectiveRole}-${effectiveCompanyId}-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} activeCompany={effectiveCompanyId} user={viewUser} onDataRefresh={() => setRefreshKey(k => k + 1)} raiseFab={isRealAdmin} />
+              <DashboardView key={`dashboard-${effectiveRole}-${effectiveCompanyId}-${activeBranch}`} onStartAudit={() => setCurrentView('audit-checklist')} activeBranch={activeBranch} activeCompany={effectiveCompanyId} user={viewUser} onDataRefresh={() => setRefreshKey(k => k + 1)} refreshKey={refreshKey} raiseFab={isRealAdmin} />
             ) : currentView === 'multi-branch' ? (
               <MultiBranchView key={`multi-branch-${effectiveCompanyId}`} onOpenTransfer={() => setIsTransferModalOpen(true)} user={viewUser} refreshKey={refreshKey} activeCompany={effectiveCompanyId} />
             ) : currentView === 'stock-comparison' ? (
@@ -737,6 +746,13 @@ export default function App() {
                     Financials
                   </button>
                 )}
+                <button
+                  onClick={() => { setIsStockInModalOpen(true); setMobileMoreOpen(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm bg-slate-50 text-slate-700 transition-all"
+                >
+                  <Download size={18} className="text-sky-500" />
+                  Stock In
+                </button>
                 {canTransferStock && (
                   <button
                     onClick={() => { setIsTransferModalOpen(true); setMobileMoreOpen(false); }}
@@ -770,6 +786,14 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      <StockInModal
+        isOpen={isStockInModalOpen}
+        onClose={() => setIsStockInModalOpen(false)}
+        onSaved={() => setRefreshKey(k => k + 1)}
+        branches={stockInBranches}
+        defaultBranch={activeBranch}
+        activeCompany={effectiveCompanyId}
+      />
       <TransferModal
         isOpen={isTransferModalOpen}
         onClose={() => setIsTransferModalOpen(false)}
