@@ -227,11 +227,15 @@ export default function App() {
   const isRealAdmin = user?.role === 'Admin';
   const effectiveRole = isRealAdmin ? viewAsRole : user?.role;
   const isAdmin = effectiveRole === 'Admin';
-  const canUseInventory = isAdmin || effectiveRole === 'Branch Manager';
+  const isManagerOrAdmin = isAdmin || effectiveRole === 'Branch Manager';
+  // Staff stock in from the Dashboard instead of the Inventory tab, so they never see prices
+  const canUseInventory = isManagerOrAdmin;
+  const canTransferStock = true;
+  const canSeeMoney = isManagerOrAdmin;
   // Managers can also open the consolidated Main Branch (HQ) view
-  const canSeeMainBranch = canUseInventory;
+  const canSeeMainBranch = isManagerOrAdmin;
   // ...and the Multi-Branch stock overview
-  const canSeeMultiBranch = canUseInventory;
+  const canSeeMultiBranch = isManagerOrAdmin;
   const isImpersonating = isRealAdmin && effectiveRole !== 'Admin';
   const moreViewActive = ['settings', 'financials', 'audit-checklist'].includes(currentView);
 
@@ -254,7 +258,7 @@ export default function App() {
   const VIEW_AS_ROLES = [
     { role: 'Admin', label: 'Admin', blurb: 'Your full view — every company and branch, all settings.' },
     { role: 'Branch Manager', label: managerLabel, blurb: 'Own branch plus Main Branch and Multi-Branch overviews. Dashboard, Inventory with Stock In / Out, audits and transfers.' },
-    { role: 'Staff', label: 'Staff', blurb: 'Own branch only. Dashboard, Log Usage, audits and transfer requests — no Inventory tab.' },
+    { role: 'Staff', label: 'Staff', blurb: 'Own branch only. Dashboard with Log Usage and Stock In, audits and stock transfers. No Inventory tab or money figures.' },
   ] as const;
   const viewAsInfo = VIEW_AS_ROLES.find(r => r.role === effectiveRole) || VIEW_AS_ROLES[0];
 
@@ -479,7 +483,7 @@ export default function App() {
           </nav>
 
           <div className="mt-auto space-y-4">
-            {isAdmin && (
+            {canTransferStock && (
               <button onClick={() => setIsTransferModalOpen(true)} className="w-full py-3 px-4 bg-primary-container text-white rounded-md font-manrope font-bold text-sm tracking-tight shadow-sm hover:shadow-md transition-all active:scale-[0.98] flex items-center justify-center gap-2">
                 <ArrowRightLeft size={16} />
                 Transfer Stock
@@ -502,7 +506,7 @@ export default function App() {
             ) : currentView === 'multi-branch' ? (
               <MultiBranchView key={`multi-branch-${effectiveCompanyId}`} onOpenTransfer={() => setIsTransferModalOpen(true)} user={viewUser} refreshKey={refreshKey} activeCompany={effectiveCompanyId} />
             ) : currentView === 'stock-comparison' ? (
-              <StockComparisonView key={`stock-comparison-${effectiveCompanyId}`} activeBranch={activeBranch} refreshKey={refreshKey} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
+              <StockComparisonView key={`stock-comparison-${effectiveCompanyId}`} activeBranch={activeBranch} refreshKey={refreshKey} activeCompany={effectiveCompanyId} companyBranches={companyBranches} showMoney={canSeeMoney} />
             ) : currentView === 'inventory' ? (
               <InventoryView key={`inventory-${effectiveRole}-${effectiveCompanyId}-${activeBranch}`} activeBranch={activeBranch} user={viewUser} activeCompany={effectiveCompanyId} companyBranches={companyBranches} />
             ) : currentView === 'settings' ? (
@@ -733,7 +737,7 @@ export default function App() {
                     Financials
                   </button>
                 )}
-                {isAdmin && (
+                {canTransferStock && (
                   <button
                     onClick={() => { setIsTransferModalOpen(true); setMobileMoreOpen(false); }}
                     className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm bg-slate-50 text-slate-700 transition-all"

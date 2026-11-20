@@ -33,9 +33,10 @@ interface Props {
   refreshKey?: number;
   activeCompany?: string;
   companyBranches?: string[];
+  showMoney?: boolean; // false for Staff: hides RM values
 }
 
-export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 'big-dental', companyBranches = [] }: Props) {
+export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 'big-dental', companyBranches = [], showMoney = true }: Props) {
   const [viewMode, setViewMode] = useState<'audit' | 'usage' | 'history'>('audit');
   const [usageData, setUsageData] = useState<UsageData[]>([]);
   const [auditData, setAuditData] = useState<AuditComparisonItem[]>([]);
@@ -426,15 +427,17 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className={`grid grid-cols-1 ${showMoney ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-6 mb-8`}>
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
             <p className="text-slate-400 text-[10px] font-bold uppercase mb-1">Total Consumption</p>
             <p className="text-2xl font-extrabold text-slate-900">{totalUsageCount} <span className="text-sm font-medium text-slate-400">Units</span></p>
           </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-            <p className="text-slate-400 text-[10px] font-bold uppercase mb-1">Consumption Value</p>
-            <p className="text-2xl font-extrabold text-primary">RM {totalUsageValue.toLocaleString('en-MY', { minimumFractionDigits: 2 })}</p>
-          </div>
+          {showMoney && (
+            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+              <p className="text-slate-400 text-[10px] font-bold uppercase mb-1">Consumption Value</p>
+              <p className="text-2xl font-extrabold text-primary">RM {totalUsageValue.toLocaleString('en-MY', { minimumFractionDigits: 2 })}</p>
+            </div>
+          )}
           <div className="bg-primary/5 p-6 rounded-2xl border border-primary/10">
             <p className="text-primary text-[10px] font-bold uppercase mb-1">Unique Items Affected</p>
             <p className="text-2xl font-extrabold text-primary">{uniqueItemsCount} SKUs</p>
@@ -595,7 +598,7 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                       <span className="text-[10px] text-slate-400 uppercase ml-1 font-bold">{item.unit}</span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold text-slate-800">RM {item.usageValue.toFixed(2)}</span>
+                      {showMoney && <span className="text-sm font-bold text-slate-800">RM {item.usageValue.toFixed(2)}</span>}
                       {item.source === 'stock-out' && (
                         <button onClick={() => handleVoidUsage(item)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-all">
                           <Trash2 size={14} />
@@ -615,7 +618,7 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                     <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Item & Branch</th>
                     <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500">Remarks</th>
                     <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Qty</th>
-                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">Value</th>
+                    <th className="px-6 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-500 text-right">{showMoney ? 'Value' : ''}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -640,10 +643,12 @@ export function StockComparisonView({ activeBranch, refreshKey, activeCompany = 
                       </td>
                       <td className="px-6 py-5 text-right">
                         <div className="flex items-center justify-end gap-3">
-                          <div className="text-right">
-                            <span className="text-sm font-bold text-slate-900">RM {item.usageValue.toFixed(2)}</span>
-                            <p className="text-[9px] text-slate-400 font-medium">Recorded Value</p>
-                          </div>
+                          {showMoney && (
+                            <div className="text-right">
+                              <span className="text-sm font-bold text-slate-900">RM {item.usageValue.toFixed(2)}</span>
+                              <p className="text-[9px] text-slate-400 font-medium">Recorded Value</p>
+                            </div>
+                          )}
                           {item.source === 'stock-out' ? (
                             <button
                               onClick={() => handleVoidUsage(item)}

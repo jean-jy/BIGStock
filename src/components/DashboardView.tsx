@@ -39,6 +39,9 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
   const [flagForm, setFlagForm] = useState({ itemId: '', remark: '' });
   const [flaggedItemName, setFlaggedItemName] = useState('');
   const [usageForm, setUsageForm] = useState({ itemId: '', quantity: 1, remarks: '' });
+  const [stockInModalOpen, setStockInModalOpen] = useState(false);
+  const [stockInForm, setStockInForm] = useState({ itemId: '', quantity: 1, supplierName: '', invoiceNo: '', notes: '' });
+  const [savingStockIn, setSavingStockIn] = useState(false);
   const [auditLogs, setAuditLogs] = useState<(AuditLog & { mismatchedItems?: any[] })[]>([]);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
@@ -250,6 +253,63 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
 
     setUsageModalOpen(false);
     setUsageForm({ itemId: '', quantity: 1, remarks: '' });
+  };
+
+  // Stock In happens on a real branch; Main Branch is consolidated
+  const canStockIn = activeBranch !== 'Main Branch' && activeBranch !== 'All Branches';
+
+  const closeStockInModal = () => {
+    setStockInModalOpen(false);
+    setStockInForm({ itemId: '', quantity: 1, supplierName: '', invoiceNo: '', notes: '' });
+  };
+
+  const handleStockIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const item = items.find(i => i.id === stockInForm.itemId);
+    const qty = stockInForm.quantity;
+    if (!item || qty <= 0 || savingStockIn) return;
+    setSavingStockIn(true);
+
+    try {
+      // 1. Add to this branch's quantity
+      const { data: biRow } = await supabase.from('branch_inventory').select('id, quantity').eq('item_id', item.id).eq('branch_id', activeBranch).maybeSingle();
+      const { error: biErr } = biRow
+        ? await supabase.from('branch_inventory').update({ quantity: biRow.quantity + qty }).eq('id', biRow.id)
+        : await supabase.from('branch_inventory').insert({ item_id: item.id, branch_id: activeBranch, quantity: qty });
+      if (biErr) throw biErr;
+
+      // 2. Master total = sum across branches
+      const { data: allRows, error: sumErr } = await supabase.from('branch_inventory').select('quantity').eq('item_id', item.id);
+      if (sumErr) throw sumErr;
+      const newTotal = (allRows || []).reduce((acc, r: any) => acc + (r.quantity || 0), 0);
+      const alertLevel = item.min_stock || 20;
+      const status = newTotal < alertLevel ? 'REORDER' : (newTotal < alertLevel * 2 ? 'BALANCED' : 'HEALTHY');
+      const { error: invErr } = await supabase.from('inventory').update({ total: newTotal, status }).eq('id', item.id);
+      if (invErr) throw invErr;
+
+      // 3. Record the movement
+      const { error: txErr } = await supabase.from('inventory_transactions').insert({
+        type: 'STOCK_IN',
+        item_id: item.id,
+        item_name: item.name,
+        quantity: qty,
+        unit: item.unit,
+        from_location: stockInForm.supplierName || 'Supplier',
+        to_location: activeBranch,
+        remarks: [stockInForm.invoiceNo && `Invoice: ${stockInForm.invoiceNo}`, stockInForm.notes].filter(Boolean).join(' — '),
+        performed_by: user?.id
+      });
+      if (txErr) throw txErr;
+
+      fetchData();
+      onDataRefresh?.();
+      closeStockInModal();
+    } catch (err) {
+      console.error('Error recording stock in:', err);
+      alert('Failed to record stock in');
+    } finally {
+      setSavingStockIn(false);
+    }
   };
 
   const handleSubmitFlag = async (e: React.FormEvent) => {
@@ -696,6 +756,13 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
             <MinusCircle size={16} />
             Log Usage
           </button>}
+          {canStockIn && <button
+            onClick={() => setStockInModalOpen(true)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-sky-500 to-blue-500 text-white text-sm font-bold shadow-lg hover:opacity-90 transition-all rounded-md active:scale-95"
+          >
+            <Download size={16} />
+            Stock In
+          </button>}
           <button
             onClick={onStartAudit}
             className="flex items-center gap-2 px-5 py-2.5 bg-primary-container text-white text-sm font-bold shadow-sm hover:opacity-90 transition-opacity rounded-md"
@@ -734,6 +801,13 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
               <MinusCircle size={14} />
               Log Usage
             </button>}
+            {canStockIn && <button
+              onClick={() => setStockInModalOpen(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-gradient-to-r from-sky-500 to-blue-500 text-white text-xs font-bold rounded-md active:scale-95"
+            >
+              <Download size={14} />
+              Stock In
+            </button>}
             <button
               onClick={onStartAudit}
               className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-primary-container text-white text-xs font-bold rounded-md active:scale-95"
@@ -749,11 +823,12 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 mb-8">
+      <div className={`grid gap-3 md:gap-6 mb-8 ${user?.role === 'Staff' ? 'grid-cols-2 md:grid-cols-3' : 'grid-cols-2 md:grid-cols-4'}`}>
         <StatsCard label="Total SKUs" value={`${totalSKUs.toLocaleString()}`} subtext="Available in catalog" borderVariant="primary" />
         <StatsCard label="Critical Low Stock" value={`${criticalStock} Items`} subtext="Requires attention" borderVariant="tertiary" />
         <StatsCard label="In Transit" value="156 Units" subtext="Pending Delivery" borderVariant="secondary" />
-        <StatsCard label="Stock Value" value={formatStockValue(stockValue)} subtext="Calculated total value" borderVariant="blue" />
+        {/* Staff don't see money figures */}
+        {user?.role !== 'Staff' && <StatsCard label="Stock Value" value={formatStockValue(stockValue)} subtext="Calculated total value" borderVariant="blue" />}
       </div>
 
       {/* Restock Alert Panel — Admin only */}
@@ -2194,6 +2269,93 @@ export function DashboardView({ onStartAudit, activeBranch, activeCompany = 'big
                 <div className="pt-2 flex gap-3">
                   <button type="button" onClick={() => setUsageModalOpen(false)} className="flex-1 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all text-sm shadow-sm">Cancel</button>
                   <button type="submit" className="flex-1 py-3 bg-teal-600 text-white font-bold rounded-xl shadow-lg shadow-teal-500/30 hover:opacity-90 transition-all text-sm">Save Usage</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ==================== STOCK IN MODAL ==================== */}
+      <AnimatePresence>
+        {stockInModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={closeStockInModal}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm print:hidden"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col print:hidden"
+            >
+              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-sky-50/50">
+                <h3 className="text-sm font-bold text-sky-800 flex items-center gap-2"><Download size={16} className="text-sky-600"/> Stock In — {activeBranch}</h3>
+                <button type="button" onClick={closeStockInModal} className="p-2 text-slate-400 hover:text-slate-600 transition-colors rounded-lg focus:outline-none"><Plus size={16} className="rotate-45" /></button>
+              </div>
+              <form onSubmit={handleStockIn} className="p-6 space-y-5">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Item Received</label>
+                  <select
+                    required
+                    value={stockInForm.itemId}
+                    onChange={(e) => setStockInForm({...stockInForm, itemId: e.target.value})}
+                    className="w-full pl-3 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-400 transition-all"
+                  >
+                    <option value="" disabled>Select an item...</option>
+                    {items.map(item => (
+                      <option key={item.id} value={item.id}>{item.name} ({branchInventory[item.id]?.qty ?? 0} {item.unit} in stock here)</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Quantity Received</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    value={stockInForm.quantity}
+                    onChange={(e) => setStockInForm({...stockInForm, quantity: parseInt(e.target.value) || 0})}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-400 transition-all font-mono"
+                  />
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Supplier (Optional)</label>
+                    <input
+                      type="text"
+                      value={stockInForm.supplierName}
+                      onChange={(e) => setStockInForm({...stockInForm, supplierName: e.target.value})}
+                      placeholder="e.g. Dentsply"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-400 transition-all"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Invoice / DO No. (Optional)</label>
+                    <input
+                      type="text"
+                      value={stockInForm.invoiceNo}
+                      onChange={(e) => setStockInForm({...stockInForm, invoiceNo: e.target.value})}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-400 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Notes (Optional)</label>
+                  <textarea
+                    value={stockInForm.notes}
+                    onChange={(e) => setStockInForm({...stockInForm, notes: e.target.value})}
+                    rows={2}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-400 transition-all resize-none"
+                  ></textarea>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button type="button" onClick={closeStockInModal} className="flex-1 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all text-sm shadow-sm">Cancel</button>
+                  <button type="submit" disabled={savingStockIn} className="flex-1 py-3 bg-sky-600 text-white font-bold rounded-xl shadow-lg shadow-sky-500/30 hover:opacity-90 transition-all text-sm disabled:opacity-60">{savingStockIn ? 'Saving...' : 'Confirm Stock In'}</button>
                 </div>
               </form>
             </motion.div>
